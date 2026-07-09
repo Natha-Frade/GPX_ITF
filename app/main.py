@@ -7,7 +7,7 @@ from sqlalchemy import text
 
 from .database import engine, Base, SessionLocal
 from . import models, auth
-from .routers import admin, dados, gopro
+from .routers import admin, dados, gopro, sharepoint
 
 # Cria tabelas
 Base.metadata.create_all(bind=engine)
@@ -46,6 +46,7 @@ app.include_router(auth.router,   prefix="/api")
 app.include_router(admin.router,  prefix="/api")
 app.include_router(dados.router,  prefix="/api")
 app.include_router(gopro.router,  prefix="/api")
+app.include_router(sharepoint.router, prefix="/api")
 
 # ── Serve o frontend estático ─────────────────────────────────────────
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "..", "static")

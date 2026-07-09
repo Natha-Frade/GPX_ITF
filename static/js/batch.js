@@ -79,7 +79,7 @@
     _modo = m;
     document.querySelectorAll('.batch-mode').forEach(b =>
       b.classList.toggle('active', b.dataset.mode === m));
-    ['pasta', 'zip', 'drive'].forEach(id => {
+    ['pasta', 'zip', 'drive', 'browser'].forEach(id => {
       const pane = document.getElementById('pane-' + id);
       if (pane) pane.style.display = (id === m) ? '' : 'none';
     });
@@ -160,6 +160,14 @@
   // ── CONVERTER (roteia pelo modo) ─────────────────────────────────────
   async function batchStart() {
     if (_rodando) return;
+
+    // Modo navegador: tudo roda no cliente (gpmf.js), sem servidor.
+    if (_modo === 'browser') {
+      if (window.batchBrowserStart) return window.batchBrowserStart();
+      alert('batch-browser.js não carregado.');
+      return;
+    }
+
     const um1hz = document.getElementById('batch1hz')?.checked;
 
     let req;

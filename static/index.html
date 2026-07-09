@@ -649,9 +649,24 @@
 
         <!-- Seletor de modo -->
         <div class="batch-modes" style="margin-top:12px;">
+          <button class="batch-mode" data-mode="browser" onclick="batchMode('browser')">Navegador ⚡</button>
           <button class="batch-mode active" data-mode="pasta" onclick="batchMode('pasta')">Pasta local</button>
           <button class="batch-mode" data-mode="zip" onclick="batchMode('zip')">Arrastar ZIP</button>
           <button class="batch-mode" data-mode="drive" onclick="batchMode('drive')">Link do Drive</button>
+        </div>
+
+        <!-- MODO NAVEGADOR (sem upload — funciona na nuvem e com pasta do SharePoint sincronizada) -->
+        <div class="batch-pane" id="pane-browser" style="display:none;">
+          <div class="batch-status ok" style="font-size:0.68rem;">
+            Os vídeos são lidos direto do seu computador, <b>sem upload</b> — só o GPX é gerado.
+            Para pastas do <b>SharePoint</b>: sincronize a biblioteca pelo OneDrive e selecione a pasta sincronizada aqui.
+          </div>
+          <button class="btn" onclick="batchBrowserPick()" style="width:100%;margin:8px 0;">
+            📁 Selecionar pasta com os vídeos</button>
+          <div id="browserInfo" style="font-size:0.7rem;color:var(--muted);margin:6px 0;"></div>
+          <div id="browserList" class="batch-list">
+            <div class="batch-empty">Selecione a pasta (inclui subpastas automaticamente).</div>
+          </div>
         </div>
 
         <!-- MODO PASTA -->
@@ -783,6 +798,8 @@
 <script src="js/points.js"></script>
 <script src="js/search.js"></script>
 <script src="js/video.js"></script>
+<script src="js/gpmf.js"></script>
+<script src="js/batch-browser.js"></script>
 <script src="js/batch.js"></script>
 <!-- ══════════════════════════════════════════════════════════════════
      TELA DE LOGIN
