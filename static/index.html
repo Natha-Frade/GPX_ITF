@@ -753,7 +753,6 @@
     <div class="map-controls">
       <button class="map-btn" onclick="fitToTrack()"     title="Centralizar no traçado">⊕</button>
       <button class="map-btn" onclick="toggleSatellite()" title="Alternar satélite" id="satBtn">🛰</button>
-      <button class="map-btn" onclick="openStreetViewAtMapCenter()" title="Abrir Street View no centro do mapa">🧭</button>
       <button class="map-btn" onclick="svTourStart()" title="Percorrer a trilha no Street View (modo Earth) — ou clique direito na trilha">🚗</button>
       <button class="map-btn" onclick="toggleFullscreen()" title="Tela cheia">⛶</button>
     </div>
@@ -794,22 +793,6 @@
     </div>
   </div>
 </div>
-
-<!-- ══════════════════════════════════════════════════════════════════
-     MODAL — Street View embutido
-════════════════════════════════════════════════════════════════════ -->
-<div class="sv-modal-overlay" id="svModal" onclick="if(event.target===this)closeStreetViewModal()">
-  <div class="sv-modal">
-    <div class="sv-modal-header">
-      <span>🧭 Street View</span>
-      <button onclick="closeStreetViewModal()" class="pin-modal-close">✕</button>
-    </div>
-    <div class="sv-modal-body" id="svModalBody"></div>
-  </div>
-</div>
-
-<div class="toast" id="toast"></div>
-
 <!-- ══════════════════════════════════════════════════════════════════
      SCRIPTS  (order matters: map → cut → merge → points)
 ════════════════════════════════════════════════════════════════════ -->
