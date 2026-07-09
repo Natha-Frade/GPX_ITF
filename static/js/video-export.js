@@ -22,9 +22,20 @@
 (function () {
   'use strict';
 
-  const CDN_FFMPEG = 'https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js';
-  const CDN_UTIL   = 'https://unpkg.com/@ffmpeg/util@0.12.1/dist/umd/index.js';
-  const CDN_CORE   = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd';
+  // Dois CDNs: se o primeiro estiver bloqueado na rede (comum em
+  // empresas), tenta o segundo automaticamente.
+  const CDNS = [
+    {
+      ffmpeg: 'https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js',
+      util:   'https://unpkg.com/@ffmpeg/util@0.12.1/dist/umd/index.js',
+      core:   'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd',
+    },
+    {
+      ffmpeg: 'https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js',
+      util:   'https://cdn.jsdelivr.net/npm/@ffmpeg/util@0.12.1/dist/umd/index.js',
+      core:   'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd',
+    },
+  ];
 
   let _loadPromise = null;
   let _ffmpeg = null;
@@ -46,17 +57,27 @@
     if (!_loadPromise) {
       _loadPromise = (async () => {
         onStatus && onStatus('Baixando motor de vídeo (primeira vez ~31 MB)...');
-        if (!window.FFmpegWASM) await _injectScript(CDN_FFMPEG);
-        if (!window.FFmpegUtil) await _injectScript(CDN_UTIL);
-        const { FFmpeg } = window.FFmpegWASM;
-        const { toBlobURL } = window.FFmpegUtil;
-        const ff = new FFmpeg();
-        await ff.load({
-          coreURL: await toBlobURL(CDN_CORE + '/ffmpeg-core.js', 'text/javascript'),
-          wasmURL: await toBlobURL(CDN_CORE + '/ffmpeg-core.wasm', 'application/wasm'),
-        });
-        _ffmpeg = ff;
-        return ff;
+        let ultimoErro = null;
+        for (const cdn of CDNS) {
+          try {
+            if (!window.FFmpegWASM) await _injectScript(cdn.ffmpeg);
+            if (!window.FFmpegUtil) await _injectScript(cdn.util);
+            const { FFmpeg } = window.FFmpegWASM;
+            const { toBlobURL } = window.FFmpegUtil;
+            const ff = new FFmpeg();
+            await ff.load({
+              coreURL: await toBlobURL(cdn.core + '/ffmpeg-core.js', 'text/javascript'),
+              wasmURL: await toBlobURL(cdn.core + '/ffmpeg-core.wasm', 'application/wasm'),
+            });
+            _ffmpeg = ff;
+            return ff;
+          } catch (e) {
+            ultimoErro = e;
+            onStatus && onStatus('CDN indisponível, tentando alternativa...');
+          }
+        }
+        throw new Error('Não consegui baixar o motor de vídeo (rede bloqueando ' +
+          'unpkg.com e cdn.jsdelivr.net?). Detalhe: ' + (ultimoErro?.message || ''));
       })().catch(e => { _loadPromise = null; throw e; });
     }
     return _loadPromise;
@@ -193,4 +214,8 @@
   window.videoExportarCortesMP4 = videoExportarCortesMP4;
   window.videoJuntarMP4 = videoJuntarMP4;
   window.videoExportCancelar = videoExportCancelar;
+  // Internos expostos p/ o editor (editor-ffmpeg.js)
+  window._ffmpegEnsure  = _ensureFFmpeg;
+  window._ffmpegMount   = _mount;
+  window._ffmpegUnmount = _unmount;
 })();

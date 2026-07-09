@@ -109,3 +109,56 @@ gratuito de US$ 200/mês) — o tour é limitado a 1 pano/1,5 s por isso.
 **Mapa.** Escala métrica no canto; satélite agora é HÍBRIDO (nomes de
 rodovias e cidades por cima da imagem — as BR-xxx aparecem); botão ⛶ de
 tela cheia; Ctrl+clique copia a coordenada do cursor.
+
+---
+
+# ATUALIZAÇÃO 3 — Editor de Vídeo funcionando
+
+## Diagnóstico
+A aba "🎞 EDITOR" apontava para `editor.html`, que NÃO EXISTIA no repo —
+por isso dava erro. O JavaScript do editor (`editor-page.js`, 844 linhas,
+estilo CapCut) já estava pronto; faltava a página.
+
+## Arquivos desta atualização
+
+| Arquivo | Ação | O que faz |
+|---|---|---|
+| `static/editor.html` | **CRIAR** | A página do editor (biblioteca, player, timeline, painéis) |
+| `static/js/editor-ffmpeg.js` | **CRIAR** | Exportação real: segmentos sem re-encode + timeline inteira → 1 MP4 |
+| `static/js/editor-page.js` | **SUBSTITUIR** | Correção de bug no tratamento de erro do GPS |
+| `static/js/video-export.js` | **SUBSTITUIR** | Fallback de CDN (unpkg → jsdelivr) p/ redes corporativas |
+| `static/index.html` | **SUBSTITUIR** | Seção "Juntar Vídeos" removida da aba Vídeo (foi para o Editor) |
+
+## O Editor (estilo CapCut)
+- **Biblioteca**: arraste vários MP4/MOV; miniaturas automáticas.
+- **Player**: atalhos Espaço (play), C (corta), ←→ (frame), Ctrl←→ (1s),
+  Shift←→ (10s), J/L (−/+10s), Home/End.
+- **Timeline**: adicione clipes com "+", arraste as BORDAS para aparar,
+  zoom de 4 a 200 px/s, régua clicável, playhead.
+- **Cortes**: "✂ Cortar aqui" marca divisões no clipe ativo; o painel
+  SEGMENTOS lista os trechos com pré-view (▶) e download (↓) —
+  agora cortados com ffmpeg SEM re-encode (antes era MediaRecorder,
+  que regravava em tempo real com perda).
+- **🎞 Timeline inteira → 1 MP4**: apara cada clipe conforme os handles
+  e concatena tudo na ordem — é o "juntar vídeos", só que melhor,
+  porque você escolhe ordem e aparas. Requer clipes do mesmo formato
+  (capítulos GoPro: perfeito).
+- **GPS → GPX**: continua no editor (gpmf.js), por clipe ou em lote.
+
+## Sobre "Juntar Vídeos" não ter funcionado
+Causa mais provável: a rede bloqueando o CDN unpkg.com (o motor ffmpeg
+não baixava). O loader agora tenta unpkg e depois cdn.jsdelivr.net e,
+se ambos falharem, mostra mensagem clara em vez de falhar em silêncio.
+Se ainda falhar, abra o console (F12) e verifique o erro de rede.
+
+## Street View embutido — é possível?
+SIM, e o app já suporta: o modal com o panorama real do Google (pegman,
+360°, modo percurso 🚗) funciona assim que você colar uma API key do
+Google Cloud no `static/js/config.js` (instruções passo a passo estão
+comentadas no próprio arquivo — leva ~10 min, cartão necessário, mas o
+crédito gratuito de US$ 200/mês cobre o uso interno). SEM key, é
+tecnicamente impossível embutir o Street View do Google (os termos de
+uso proíbem iframe/scraping) — por isso o fallback atual abre em nova
+aba. Alternativa 100% gratuita: Mapillary (imagens de rua colaborativas,
+com SDK embutível) — cobertura em rodovias federais é irregular, mas
+existe. Se quiser, é uma integração futura.

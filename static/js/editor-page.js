@@ -750,7 +750,8 @@ async function extractGPS(id) {
     console.error('[GPMF]', err);
     toast('Erro GPS: ' + err.message, 'error');
     if (wrap) wrap.style.display = 'none';
-    if (btn)  btn.textContent = 'Erro ao ler GPS';
+    const btn = getBtn();
+    if (btn) btn.textContent = 'Erro ao ler GPS';
   }
 }
 

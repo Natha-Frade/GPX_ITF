@@ -643,21 +643,10 @@
         <div class="hint-text" style="margin-top:6px;">
           O corte de vídeo roda no seu navegador, sem re-encode (rápido e sem perda).
           O ponto de corte alinha ao keyframe (~1s de folga). Primeira vez baixa o motor (~31 MB).
+          Para juntar vídeos e montar sequências, use a aba <b>🎞 EDITOR</b>.
         </div>
         <div class="vid-progress-bar" style="margin-top:6px;"><div id="vidExportFill" class="vid-progress-fill" style="width:0%;"></div></div>
         <div id="vidExportStatus" style="font-size:0.65rem;color:var(--muted);margin-top:4px;"></div>
-      </div>
-
-      <!-- Juntar vídeos (capítulos da GoPro) -->
-      <div class="section">
-        <div class="section-title">Juntar Vídeos</div>
-        <div class="hint-text" style="margin-bottom:6px;">
-          Une capítulos da GoPro (GX010001 + GX020001...) em um MP4 só, sem re-encode.
-          A ordem segue o nome dos arquivos.
-        </div>
-        <button class="btn btn-primary" onclick="vidJoinPick()" style="width:100%;">
-          ➕ Selecionar vídeos para juntar
-        </button>
       </div>
 
     </div><!-- /panel-video -->
@@ -753,6 +742,7 @@
     <div class="map-controls">
       <button class="map-btn" onclick="fitToTrack()"     title="Centralizar no traçado">⊕</button>
       <button class="map-btn" onclick="toggleSatellite()" title="Alternar satélite" id="satBtn">🛰</button>
+      <button class="map-btn" onclick="openStreetViewAtMapCenter()" title="Abrir Street View no centro do mapa">🧭</button>
       <button class="map-btn" onclick="svTourStart()" title="Percorrer a trilha no Street View (modo Earth) — ou clique direito na trilha">🚗</button>
       <button class="map-btn" onclick="toggleFullscreen()" title="Tela cheia">⛶</button>
     </div>
@@ -793,6 +783,22 @@
     </div>
   </div>
 </div>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     MODAL — Street View embutido
+════════════════════════════════════════════════════════════════════ -->
+<div class="sv-modal-overlay" id="svModal" onclick="if(event.target===this)closeStreetViewModal()">
+  <div class="sv-modal">
+    <div class="sv-modal-header">
+      <span>🧭 Street View</span>
+      <button onclick="closeStreetViewModal()" class="pin-modal-close">✕</button>
+    </div>
+    <div class="sv-modal-body" id="svModalBody"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
 <!-- ══════════════════════════════════════════════════════════════════
      SCRIPTS  (order matters: map → cut → merge → points)
 ════════════════════════════════════════════════════════════════════ -->
