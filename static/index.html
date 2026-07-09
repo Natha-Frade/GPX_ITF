@@ -1,0 +1,924 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GPX IMTRAFF</title>
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <link rel="apple-touch-icon" href="/favicon.png">
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+  <!-- Leaflet -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <!-- JSZip (para extrair .kmz) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+
+  <!-- App Styles -->
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     HEADER
+════════════════════════════════════════════════════════════════════ -->
+<header>
+  <div class="logo">
+    <div class="logo-icon">
+      <img src="/logo.png" style="width:26px;height:26px;object-fit:contain;">
+    </div>
+    <div class="logo-text">GPX <span>IMTRAFF</span></div>
+  </div>
+  <div class="status-bar">
+    <div class="status-pill" id="fileStatus">Nenhum arquivo</div>
+    <div class="status-pill" id="modeStatus">Modo: —</div>
+  </div>
+  <div id="userBar" style="display:flex;align-items:center;gap:8px;display:none">
+    <span id="userBadge" style="font-size:.72rem;color:var(--muted);font-family:'JetBrains Mono',monospace;"></span>
+    <button id="adminBtn" onclick="location.href='/admin'"
+      style="display:none;background:var(--accent2);color:#fff;border:none;padding:5px 10px;border-radius:6px;font-size:.7rem;cursor:pointer;font-family:'Syne',sans-serif;">
+      Admin
+    </button>
+    <button onclick="fazerLogout()"
+      style="background:var(--surface2);color:var(--muted);border:1px solid var(--border);padding:5px 10px;border-radius:6px;font-size:.7rem;cursor:pointer;font-family:'Syne',sans-serif;">
+      Sair
+    </button>
+  </div>
+</header>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     TAB NAV
+════════════════════════════════════════════════════════════════════ -->
+<div class="tab-nav">
+  <button class="tab-btn active" onclick="switchTab('corte')"> CORTAR GPX</button>
+  <button class="tab-btn"        onclick="switchTab('unir')"> UNIR GPX</button>
+  <button class="tab-btn"        onclick="switchTab('pontos')"> MARCAÇÕES</button>
+  <button class="tab-btn"        onclick="switchTab('video')"> VÍDEO + GPX</button>
+  <button class="tab-btn"        onclick="switchTab('gopro')"> GOPRO → GPX (LOTE)</button>
+  <a class="tab-btn" href="editor.html" target="_blank">🎞 EDITOR</a>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     APP LAYOUT
+════════════════════════════════════════════════════════════════════ -->
+<div class="app-layout">
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+
+    <!-- ════════════ TAB: CORTE ════════════ -->
+    <div class="tab-panel active" id="panel-corte">
+
+      <!-- Upload -->
+      <div class="section">
+        <div class="section-title">Arquivo GPX</div>
+        <div class="upload-zone" id="uploadZone">
+          <input type="file" id="fileInput" accept=".gpx">
+          <div class="upload-icon-text">GPX</div>
+          <div class="upload-text"><strong>Clique ou arraste</strong> o arquivo.</div>
+        </div>
+      </div>
+
+      <!-- GPX Info -->
+      <div class="section" id="gpxInfoSection" style="display:none">
+        <div class="section-title">Info do Traçado</div>
+        <div class="gpx-stats">
+          <div class="stat-box"><div class="stat-box-label">PONTOS</div><div class="stat-box-value" id="statPoints">—</div></div>
+          <div class="stat-box"><div class="stat-box-label">KM TOTAL</div><div class="stat-box-value" id="statTotal">—</div></div>
+          <div class="stat-box"><div class="stat-box-label">INÍCIO</div><div class="stat-box-value" id="statStart">—</div></div>
+          <div class="stat-box"><div class="stat-box-label">FIM</div><div class="stat-box-value" id="statEnd">—</div></div>
+        </div>
+        <!-- KM Offset -->
+        <div style="margin-top:14px;">
+          <div class="input-label" style="margin-bottom:6px;font-size:0.65rem;letter-spacing:1.5px;">KM INICIAL DA VIA</div>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <input type="number" id="kmOffsetInt" placeholder="Ex: 178" min="0" step="1"
+              style="width:70px;text-align:center;" oninput="updateOffsetPreview()" title="Parte inteira do KM">
+            <span style="color:var(--muted);font-family:'JetBrains Mono',monospace;font-size:1rem;">+</span>
+            <input type="number" id="kmOffsetDec" placeholder="000" min="0" max="999" step="1"
+              style="width:60px;text-align:center;" oninput="updateOffsetPreview()" title="Metros (0–999)">
+            <button type="button" id="kmDirToggle" onclick="toggleKmDirection()"
+              title="Sentido da quilometragem: crescente ou decrescente"
+              style="background:var(--surface2);border:1px solid var(--border);color:var(--accent);
+                     border-radius:6px;padding:6px 9px;font-size:0.85rem;cursor:pointer;flex-shrink:0;">
+              ▲
+            </button>
+          </div>
+
+          <!-- KM Inicial → KM Final calculado automaticamente -->
+          <div style="display:flex;gap:8px;margin-top:10px;">
+            <div style="flex:1;background:var(--surface2);border:1px solid var(--border);
+                        border-radius:8px;padding:8px 10px;text-align:center;">
+              <div style="font-size:0.58rem;color:var(--muted);letter-spacing:1px;
+                          text-transform:uppercase;margin-bottom:4px;">KM Inicial</div>
+              <div id="kmOffsetStartDisplay" style="font-family:'JetBrains Mono',monospace;
+                   font-size:1.1rem;font-weight:800;color:var(--muted);">—</div>
+            </div>
+            <div style="flex:0 0 auto;display:flex;align-items:center;color:var(--muted);font-size:0.9rem;">→</div>
+            <div style="flex:1;background:var(--surface2);border:1px solid var(--accent-dark);
+                        border-radius:8px;padding:8px 10px;text-align:center;">
+              <div style="font-size:0.58rem;color:var(--muted);letter-spacing:1px;
+                          text-transform:uppercase;margin-bottom:4px;">KM Final</div>
+              <div id="kmOffsetEndDisplay" style="font-family:'JetBrains Mono',monospace;
+                   font-size:1.1rem;font-weight:800;color:var(--accent);">—</div>
+            </div>
+          </div>
+          <div class="hint-text" id="kmDirHint" style="margin-top:6px;">
+            ▲ Sentido crescente — KM final = inicial + percorrido
+          </div>
+        </div>
+
+        <!-- CÁLCULO DE KM via KMZ -->
+        <div id="kmCalcSection" style="margin-top:12px;">
+          <div class="section-title" style="margin-bottom:8px;">
+            KM na Via
+            <span style="font-family:'JetBrains Mono',monospace;font-size:0.6rem;color:var(--muted);
+                         font-weight:400;margin-left:6px;" id="kmCalcRoad">—</span>
+          </div>
+          <div id="kmCalcAlert" style="display:none;"></div>
+          <div style="display:flex;gap:8px;margin-bottom:10px;">
+            <div style="flex:1;background:var(--surface2);border:1px solid var(--border);
+                        border-radius:8px;padding:8px 10px;text-align:center;">
+              <div style="font-size:0.58rem;color:var(--muted);letter-spacing:1px;
+                          text-transform:uppercase;margin-bottom:4px;">Início GPX</div>
+              <div id="kmCalcStart" style="font-family:'JetBrains Mono',monospace;
+                   font-size:1.1rem;font-weight:800;color:var(--muted);">—</div>
+            </div>
+            <div style="flex:1;background:var(--surface2);border:1px solid var(--border);
+                        border-radius:8px;padding:8px 10px;text-align:center;">
+              <div style="font-size:0.58rem;color:var(--muted);letter-spacing:1px;
+                          text-transform:uppercase;margin-bottom:4px;">Fim GPX</div>
+              <div id="kmCalcEnd" style="font-family:'JetBrains Mono',monospace;
+                   font-size:1.1rem;font-weight:800;color:var(--muted);">—</div>
+            </div>
+          </div>
+
+          <!-- Cards de coordenada do corte selecionado -->
+          <div style="display:flex;gap:8px;margin-top:8px;">
+            <div style="flex:1;background:var(--surface2);border:1px solid var(--border);
+                        border-radius:8px;padding:8px 10px;text-align:center;">
+              <div style="font-size:0.58rem;color:var(--muted);letter-spacing:1px;
+                          text-transform:uppercase;margin-bottom:4px;">Início Corte</div>
+              <div id="cutCoordStart" style="font-family:'JetBrains Mono',monospace;
+                   font-size:0.7rem;font-weight:700;color:var(--muted);">—</div>
+            </div>
+            <div style="flex:1;background:var(--surface2);border:1px solid var(--border);
+                        border-radius:8px;padding:8px 10px;text-align:center;">
+              <div style="font-size:0.58rem;color:var(--muted);letter-spacing:1px;
+                          text-transform:uppercase;margin-bottom:4px;">Fim Corte</div>
+              <div id="cutCoordEnd" style="font-family:'JetBrains Mono',monospace;
+                   font-size:0.7rem;font-weight:700;color:var(--muted);">—</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Cut Mode -->
+      <div class="section" id="cutSection" style="display:none">
+        <div class="section-title">Modo de Corte</div>
+        <div class="cut-panel">
+          <div class="mode-toggle">
+            <button class="mode-btn active" id="modeClick" onclick="setMode('click')">Click no Mapa</button>
+            <button class="mode-btn"        id="modeCoord" onclick="setMode('coord')">Coordenadas</button>
+            <button class="mode-btn"        id="modeTime"  onclick="setMode('time')">Tempo</button>
+          </div>
+
+          <!-- Click Mode Panel -->
+          <div id="clickModePanel">
+            <!-- Selector: qual ponto definir -->
+            <div style="display:flex;gap:6px;margin-bottom:10px;">
+              <button id="btnTargetStart" class="btn-target active" onclick="setActiveTarget('start')">
+                Definir INÍCIO
+              </button>
+              <button id="btnTargetEnd" class="btn-target" onclick="setActiveTarget('end')">
+                Definir FIM
+              </button>
+            </div>
+            <div class="hint-text" style="margin-bottom:10px;">
+              Clique no traçado. Arraste os marcadores para precisão fina.
+            </div>
+            <!-- Labels com reset individual -->
+            <div style="display:flex;flex-direction:column;gap:6px;">
+              <div style="display:flex;align-items:center;gap:6px;">
+                <div class="dot start"></div>
+                <span id="clickStartLabel" style="flex:1;color:var(--muted);font-family:'JetBrains Mono',monospace;font-size:0.72rem;">INÍCIO: não definido</span>
+                <button class="btn-reset-single" onclick="resetStart()" title="Resetar início">↺</button>
+              </div>
+              <div style="display:flex;align-items:center;gap:6px;">
+                <div class="dot end"></div>
+                <span id="clickEndLabel" style="flex:1;color:var(--muted);font-family:'JetBrains Mono',monospace;font-size:0.72rem;">FIM: não definido</span>
+                <button class="btn-reset-single" onclick="resetEnd()" title="Resetar fim">↺</button>
+              </div>
+            </div>
+            <div style="display:flex;justify-content:space-between;margin-top:8px;font-size:0.7rem;color:var(--muted);">
+              <span>Pontos: <strong id="selectedCount" style="color:var(--text)">0 / 2</strong></span>
+              <span>Trecho: <strong id="sectionKm" style="color:var(--accent)">—</strong></span>
+            </div>
+            <button class="btn btn-danger" onclick="clearPending()" style="margin-top:6px;width:100%;padding:7px;">Limpar pontos pendentes</button>
+          </div>
+
+          <!-- Coord Mode Panel -->
+          <div id="coordModePanel" style="display:none">
+            <div class="input-group">
+              <div class="input-label"><div class="dot start"></div> Ponto Inicial</div>
+              <div class="input-row">
+                <input type="number" id="startLat" placeholder="Lat" class="coord-input" step="0.000001">
+                <input type="number" id="startLng" placeholder="Lng" class="coord-input" step="0.000001">
+              </div>
+            </div>
+            <div class="input-group" style="margin-top:10px;">
+              <div class="input-label"><div class="dot end"></div> Ponto Final</div>
+              <div class="input-row">
+                <input type="number" id="endLat" placeholder="Lat" class="coord-input" step="0.000001">
+                <input type="number" id="endLng" placeholder="Lng" class="coord-input" step="0.000001">
+              </div>
+            </div>
+            <button class="btn btn-secondary" style="margin-top:10px;width:100%;" onclick="applyCoordCut()">Aplicar no mapa</button>
+          </div>
+
+          <!-- Time Mode Panel -->
+          <div id="timeModePanel" style="display:none">
+            <div id="timeGpxInfo" class="hint-text" style="margin-bottom:12px;">
+              Carregue um GPX para ver a duração disponível.
+            </div>
+            <div class="input-group">
+              <div class="input-label"><div class="dot start"></div> Início do trecho</div>
+              <div class="input-row" style="gap:6px;align-items:center;">
+                <input type="number" id="timeCutStartMin" placeholder="00" min="0" step="1"
+                  style="width:60px;text-align:center;" oninput="previewTimeCut()">
+                <span style="color:var(--muted);font-size:0.8rem;">min</span>
+                <input type="number" id="timeCutStartSec" placeholder="00" min="0" max="59" step="1"
+                  style="width:60px;text-align:center;" oninput="previewTimeCut()">
+                <span style="color:var(--muted);font-size:0.8rem;">seg</span>
+              </div>
+            </div>
+            <div class="input-group" style="margin-top:8px;">
+              <div class="input-label"><div class="dot end"></div> Fim do trecho</div>
+              <div class="input-row" style="gap:6px;align-items:center;">
+                <input type="number" id="timeCutEndMin" placeholder="00" min="0" step="1"
+                  style="width:60px;text-align:center;" oninput="previewTimeCut()">
+                <span style="color:var(--muted);font-size:0.8rem;">min</span>
+                <input type="number" id="timeCutEndSec" placeholder="00" min="0" max="59" step="1"
+                  style="width:60px;text-align:center;" oninput="previewTimeCut()">
+                <span style="color:var(--muted);font-size:0.8rem;">seg</span>
+              </div>
+            </div>
+            <div id="timeCutPreview" style="display:none;margin-top:8px;padding:8px;background:var(--surface2);border-radius:6px;font-size:0.7rem;color:var(--muted);">
+              Pontos: <strong id="timeCutPoints" style="color:var(--text)">—</strong>
+              &nbsp;·&nbsp;
+              Dist: <strong id="timeCutDist" style="color:var(--accent)">—</strong>
+            </div>
+            <button class="btn btn-primary" style="margin-top:10px;width:100%;" onclick="applyTimeCut()">+ Salvar Corte</button>
+          </div>
+
+          <div class="btn-group" style="margin-top:10px;">
+            <button class="btn btn-primary" id="cutBtn" onclick="executeCut()" disabled>+ Salvar Corte</button>
+            <button class="btn btn-secondary" onclick="resetAll()">Resetar tudo</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Lista de cortes salvos -->
+      <div class="section" id="resultsSection" style="display:none">
+        <div class="section-title">Cortes Salvos <span class="section-badge" id="cutsCountBadge">0</span></div>
+        <div id="cutsList" class="cuts-list"></div>
+        <button id="downloadAllBtn" class="btn btn-primary" onclick="downloadAllCuts()"
+                style="width:100%;margin-top:8px;display:none;">
+          Baixar todos os GPX
+        </button>
+      </div>
+
+      <div class="empty-state" id="emptyState">
+        <div class="empty-icon"></div>
+        <div class="empty-text">Importe um arquivo GPX para começar a editar o traçado</div>
+      </div>
+
+    </div><!-- /panel-corte -->
+
+
+    <!-- ════════════ TAB: UNIR ════════════ -->
+    <div class="tab-panel" id="panel-unir">
+
+      <!-- Slots -->
+      <div class="section">
+        <div class="section-title">Arquivos GPX (até 4)</div>
+        <div style="display:flex; flex-direction:column; gap:10px;" id="mergeSlots">
+
+          <!-- Slot A -->
+          <div class="merge-slot" id="slot-A">
+            <div class="slot-header">
+              <span class="slot-badge A">GPX A</span>
+              <span class="slot-filename" id="fname-A">Nenhum arquivo</span>
+              <button class="slot-clear-btn" onclick="clearSlot('A')" title="Remover">✕</button>
+            </div>
+            <label class="slot-upload-btn" id="uploadBtn-A">
+              📂 Escolher GPX A
+              <input type="file" accept=".gpx" onchange="loadMergeFile('A', this)">
+            </label>
+            <div class="slot-pts" id="pts-A">— pontos</div>
+          </div>
+
+          <!-- Slot B -->
+          <div class="merge-slot" id="slot-B">
+            <div class="slot-header">
+              <span class="slot-badge B">GPX B</span>
+              <span class="slot-filename" id="fname-B">Nenhum arquivo</span>
+              <button class="slot-clear-btn" onclick="clearSlot('B')" title="Remover">✕</button>
+            </div>
+            <label class="slot-upload-btn" id="uploadBtn-B">
+              📂 Escolher GPX B
+              <input type="file" accept=".gpx" onchange="loadMergeFile('B', this)">
+            </label>
+            <div class="slot-pts" id="pts-B">— pontos</div>
+          </div>
+
+          <!-- Slot C -->
+          <div class="merge-slot" id="slot-C">
+            <div class="slot-header">
+              <span class="slot-badge C">GPX C</span>
+              <span class="slot-filename" id="fname-C">Nenhum arquivo</span>
+              <button class="slot-clear-btn" onclick="clearSlot('C')" title="Remover">✕</button>
+            </div>
+            <label class="slot-upload-btn" id="uploadBtn-C">
+              📂 Escolher GPX C
+              <input type="file" accept=".gpx" onchange="loadMergeFile('C', this)">
+            </label>
+            <div class="slot-pts" id="pts-C">— pontos</div>
+          </div>
+
+          <!-- Slot D -->
+          <div class="merge-slot" id="slot-D">
+            <div class="slot-header">
+              <span class="slot-badge D">GPX D</span>
+              <span class="slot-filename" id="fname-D">Nenhum arquivo</span>
+              <button class="slot-clear-btn" onclick="clearSlot('D')" title="Remover">✕</button>
+            </div>
+            <label class="slot-upload-btn" id="uploadBtn-D">
+              📂 Escolher GPX D
+              <input type="file" accept=".gpx" onchange="loadMergeFile('D', this)">
+            </label>
+            <div class="slot-pts" id="pts-D">— pontos</div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Merge Options -->
+      <div class="section">
+        <div class="section-title">Opções de Junção</div>
+        <div class="merge-options">
+
+          <div class="opt-row">
+            <label>SEGMENTAÇÃO</label>
+            <div class="toggle-wrap">
+              <button class="toggle-opt active" id="segContinuo" onclick="setSegMode('continuo')">1 segmento</button>
+              <button class="toggle-opt"        id="segManter"   onclick="setSegMode('manter')">Manter segs</button>
+            </div>
+          </div>
+
+          <div class="opt-row">
+            <label>GAP ENTRE ARQUIVOS (s)</label>
+            <div class="gap-input-wrap">
+              <input type="number" id="gapSeconds" value="0" min="0" step="1" style="width:70px;">
+              <span class="gap-unit">seg</span>
+            </div>
+          </div>
+
+        </div>
+        <div class="hint-text" style="margin-top:12px;">
+          Os timestamps do 2º, 3º e 4º GPX são <strong>recalculados</strong> preservando os espaçamentos originais — igual ao app Unir GPX, evitando embaralhamento no Basecamp.
+        </div>
+      </div>
+
+      <!-- Merge Action -->
+      <div class="section">
+        <div class="btn-group">
+          <button class="btn btn-primary"   id="mergeBtn" onclick="executeMerge()">🔗 Unir e Exibir no Mapa</button>
+          <button class="btn btn-secondary"              onclick="resetMerge()">🗑 Limpar tudo</button>
+        </div>
+      </div>
+
+      <!-- Merge Result -->
+      <div class="section" id="mergeResultSection" style="display:none">
+        <div class="section-title">Resultado da Junção</div>
+        <div class="merge-result-card">
+          <div class="merge-result-row">
+            <span class="merge-result-label">ARQUIVOS UNIDOS</span>
+            <span class="merge-result-val" id="mergeResFiles">—</span>
+          </div>
+          <div class="merge-result-row">
+            <span class="merge-result-label">TOTAL DE PONTOS</span>
+            <span class="merge-result-val" id="mergeResPoints">—</span>
+          </div>
+          <div class="merge-result-row">
+            <span class="merge-result-label">DISTÂNCIA TOTAL</span>
+            <span class="merge-result-val" id="mergeResKm">—</span>
+          </div>
+          <div class="merge-result-row">
+            <span class="merge-result-label">SEGMENTOS</span>
+            <span class="merge-result-val" id="mergeResSegs">—</span>
+          </div>
+        </div>
+        <div style="margin-top:12px;">
+          <button class="btn btn-primary" onclick="downloadMergedGPX()" style="width:100%;">Baixar GPX Unido</button>
+        </div>
+      </div>
+
+      <div class="empty-state" id="mergeEmptyState">
+        <div class="empty-icon">🔗</div>
+        <div class="empty-text">Carregue ao menos 2 arquivos GPX para fazer a junção</div>
+      </div>
+
+    </div><!-- /panel-unir -->
+
+
+    <!-- ════════════ TAB: PONTOS ════════════ -->
+    <div class="tab-panel" id="panel-pontos">
+
+      <!-- Upload múltiplo GPX / KMZ -->
+      <div class="section">
+        <div class="section-title">Arquivos GPX / KMZ <span class="section-badge" id="ptCountBadge">0</span></div>
+        <div class="upload-zone" id="ptUploadZone" style="min-height:70px;">
+          <input type="file" id="ptFileInput" accept=".gpx,.kmz,.kml" multiple style="display:none">
+          <div class="upload-icon" style="font-size:1.2rem;">🗺</div>
+          <div class="upload-text" style="font-size:0.8rem;">
+            <strong>Clique ou arraste</strong> arquivos GPX ou KMZ do Google Earth
+          </div>
+        </div>
+        <div id="ptGpxList" class="pt-gpx-list"></div>
+      </div>
+
+      <!-- KMZ / Google Earth (oculto até carregar um KMZ) -->
+      <div class="section" id="ptKmzSection" style="display:none">
+        <div class="section-title">Google Earth / KMZ</div>
+        <div id="ptKmzList" class="pt-gpx-list"></div>
+      </div>
+
+      <!-- Botão modo adicionar pino -->
+      <div class="section">
+        <div class="section-title">Adicionar Marcos </div>
+        <button class="btn btn-primary" id="ptAddModeBtn" onclick="toggleAddPointMode()" style="width:100%;">
+          Adicionar Marcos
+        </button>
+        <div class="hint-text" style="margin-top:8px;">
+          Ative e clique no mapa para colocar pins com categoria e rótulo.
+        </div>
+      </div>
+
+      <!-- ════ BUSCAR LOCALIZAÇÃO (unificado aqui, antes era aba separada) ════ -->
+      <div class="section">
+        <div class="section-title" style="cursor:pointer;justify-content:space-between;" onclick="togglePtSearch()">
+          <span style="display:flex;align-items:center;gap:8px;">🔍 Buscar Localização</span>
+          <span id="ptSearchChevron" style="transition:transform 0.2s;">▾</span>
+        </div>
+
+        <div id="ptSearchBody" style="display:none;">
+          <!-- Campo de busca -->
+          <div style="display:flex;gap:6px;margin-bottom:8px;">
+            <input type="text" id="searchInput"
+              placeholder="Endereço, cidade, rodovia, coordenadas..."
+              style="flex:1;"
+              onkeydown="if(event.key==='Enter') runSearch()"
+              oninput="onSearchInput(this.value)">
+            <button class="btn btn-primary" onclick="runSearch()" style="padding:8px 12px;flex-shrink:0;">
+              🔍
+            </button>
+          </div>
+          <div id="searchSuggestions" class="search-suggestions" style="display:none;"></div>
+          <div class="hint-text" style="margin-top:6px;margin-bottom:14px;">
+            Exemplos:
+            <span class="search-example" onclick="fillSearch('BR-277 Paraná')">BR-277 PR</span> ·
+            <span class="search-example" onclick="fillSearch('Curitiba PR')">Curitiba PR</span> ·
+            <span class="search-example" onclick="fillSearch('-25.4284, -49.2733')">-25.4284, -49.2733</span>
+          </div>
+
+          <!-- Ir para coordenadas diretas -->
+          <div class="section-title" style="margin-top:4px;">Ir para Coordenadas</div>
+          <div style="display:flex;gap:6px;margin-bottom:8px;">
+            <input type="number" id="gotoLat" placeholder="Latitude" step="0.000001" style="flex:1;">
+            <input type="number" id="gotoLng" placeholder="Longitude" step="0.000001" style="flex:1;">
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+            <span style="font-size:0.65rem;color:var(--muted);flex-shrink:0;">Zoom</span>
+            <input type="range" id="gotoZoom" min="5" max="19" value="16" style="flex:1;"
+                   oninput="document.getElementById('gotoZoomVal').textContent=this.value">
+            <span id="gotoZoomVal" style="font-family:'JetBrains Mono',monospace;font-size:0.72rem;
+                  color:var(--accent);min-width:24px;text-align:right;">16</span>
+          </div>
+          <button class="btn btn-primary" onclick="gotoCoords()" style="width:100%;">
+            Ir para Coordenadas
+          </button>
+
+          <!-- Resultados -->
+          <div id="searchResultsSection" style="display:none;margin-top:16px;">
+            <div class="section-title">Resultados</div>
+            <div id="searchResults" class="search-results-list"></div>
+          </div>
+
+          <!-- Histórico -->
+          <div id="searchHistorySection" style="display:none;margin-top:16px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+              <div class="section-title" style="margin-bottom:0;">Recentes</div>
+              <button onclick="clearSearchHistory()"
+                      style="background:transparent;border:none;color:var(--muted);font-size:0.65rem;cursor:pointer;">
+                Limpar
+              </button>
+            </div>
+            <div id="searchHistory" class="search-history-list"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Lista de pontos salvos + filtros -->
+      <div class="section">
+        <div class="section-title">Marcos Salvos</div>
+        <div class="pt-filter-bar" id="ptFilterBar"></div>
+        <div id="ptSavedList" class="pt-saved-list"></div>
+        <div class="btn-group" style="margin-top:10px;">
+          <button class="btn btn-secondary" onclick="exportPointsKML()" style="flex:1;">KML</button>
+          <button class="btn btn-secondary" onclick="exportPointsCSV()" style="flex:1;">CSV</button>
+          <button class="btn btn-danger"    onclick="clearAllPoints()"  style="flex:1;">🗑 Limpar</button>
+        </div>
+      </div>
+
+      <div class="empty-state" id="ptEmptyState">
+        <div class="empty-icon">🗂️</div>
+        <div class="empty-text">Carregue arquivos GPX ou KMZ do Google Earth para visualizar trilhas e marcações no mapa</div>
+      </div>
+
+    </div><!-- /panel-pontos -->
+
+
+    <!-- ════════════ TAB: VÍDEO + GPX ════════════ -->
+    <div class="tab-panel" id="panel-video">
+
+      <!-- Upload do vídeo -->
+      <div class="section" id="vidUploadSection">
+        <div class="section-title">Arquivo de Vídeo</div>
+        <div class="upload-zone" id="vidUploadZone" style="min-height:70px;">
+          <input type="file" id="vidFileInput" accept="video/*" style="display:none">
+          <div class="upload-icon-text">MP4 / MOV / AVI</div>
+          <div class="upload-text" style="font-size:0.8rem;"><strong>Clique ou arraste</strong> o vídeo aqui</div>
+        </div>
+      </div>
+
+      <!-- Player -->
+      <div class="section" id="vidPlayerSection" style="display:none;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+          <div id="vidFileName" class="vid-filename">—</div>
+          <button class="btn btn-danger" onclick="removeVideo()" style="padding:4px 10px;font-size:0.65rem;">Remover</button>
+        </div>
+        <video id="videoPlayer" controls style="width:100%;border-radius:8px;background:#000;border:1px solid var(--border);max-height:190px;"></video>
+        <div id="vidProgressBar" class="vid-progress-bar" onclick="seekVideo(event)" title="Clique para navegar">
+          <div id="vidProgressFill" class="vid-progress-fill"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;margin-top:5px;">
+          <div id="vidTimeLabel" class="vid-time">0:00 / 0:00</div>
+          <div id="vidCursorInfo" class="vid-time" style="color:var(--accent);">—</div>
+        </div>
+      </div>
+
+      <!-- Compatibilidade -->
+      <div class="section">
+        <div id="vidCompatBar" class="vid-compat-bar pending">Carregue GPX e Vídeo para verificar compatibilidade</div>
+      </div>
+
+      <!-- Sincronização -->
+      <div class="section">
+        <div class="section-title">Sincronização GPX</div>
+        <div id="vidStatus" class="vid-status">Sem vídeo carregado</div>
+        <button class="btn btn-primary" id="vidLinkBtn" onclick="linkGpxToVideo()" style="width:100%;margin-top:10px;" disabled>
+          🔗 Vincular GPX ao Vídeo
+        </button>
+        <div class="hint-text" style="margin-top:7px;">Carregue o GPX na aba <strong>CORTAR GPX</strong> antes de vincular.</div>
+      </div>
+
+      <!-- Offset -->
+      <div class="section">
+        <div class="section-title">Ajuste de Sincronização</div>
+        <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;">
+          <button class="btn btn-secondary" onclick="nudgeOffset(-1)" style="padding:5px 10px;font-size:0.8rem;">−1s</button>
+          <button class="btn btn-secondary" onclick="nudgeOffset(-0.5)" style="padding:5px 8px;font-size:0.75rem;">−0.5</button>
+          <input type="number" id="vidOffsetInput" value="0" step="0.5"
+            style="flex:1;text-align:center;font-family:'JetBrains Mono',monospace;font-size:0.8rem;"
+            oninput="applyOffset()" title="Offset em segundos">
+          <button class="btn btn-secondary" onclick="nudgeOffset(0.5)" style="padding:5px 8px;font-size:0.75rem;">+0.5</button>
+          <button class="btn btn-secondary" onclick="nudgeOffset(1)" style="padding:5px 10px;font-size:0.8rem;">+1s</button>
+        </div>
+        <div id="vidOffsetDisplay" style="font-family:'JetBrains Mono',monospace;font-size:0.65rem;color:var(--muted);text-align:center;">0.0s</div>
+      </div>
+
+      <!-- Timeline de cortes -->
+      <div class="section">
+        <div class="section-title">Timeline de Cortes</div>
+        <div class="hint-text" style="margin-bottom:8px;">Clique em "+ Adicionar Corte" e arraste os handles verdes para ajustar o trecho.</div>
+        <div class="vid-timeline-wrap">
+          <div id="vidTimeline" class="vid-timeline">
+            <div id="vidPlayhead" class="vid-playhead"></div>
+          </div>
+          <div id="vidTimeMarkers" class="vid-time-markers"></div>
+        </div>
+        <button class="btn btn-primary" onclick="addVideoCutAtCurrent()" style="width:100%;margin-top:8px;">
+          + Adicionar Corte no instante atual
+        </button>
+      </div>
+
+      <!-- Lista de cortes do vídeo -->
+      <div class="section" id="vidCutsSection" style="display:none;">
+        <div class="section-title">Cortes Definidos <span class="section-badge" id="vidCutsCountBadge">0</span></div>
+        <div id="vidCutsList" class="vid-cuts-list"></div>
+        <button class="btn btn-primary" onclick="exportVideoCutsAsGpx()" style="width:100%;margin-top:8px;">
+          Exportar GPXs dos Cortes
+        </button>
+      </div>
+
+    </div><!-- /panel-video -->
+
+    <div class="tab-panel" id="panel-gopro">
+      <div class="panel-card">
+        <h3 style="margin-top:0;">Conversor vídeos GoPro em GPX</h3>
+
+        <div id="batchStatus" class="batch-status">Verificando exiftool...</div>
+        <button class="btn btn-primary" id="batchInstall" onclick="batchInstall()"
+                style="display:none;width:100%;margin-top:8px;">
+          Baixar e instalar exiftool automaticamente</button>
+
+        <!-- Seletor de modo -->
+        <div class="batch-modes" style="margin-top:12px;">
+          <button class="batch-mode active" data-mode="pasta" onclick="batchMode('pasta')">Pasta local</button>
+          <button class="batch-mode" data-mode="zip" onclick="batchMode('zip')">Arrastar ZIP</button>
+          <button class="batch-mode" data-mode="drive" onclick="batchMode('drive')">Link do Drive</button>
+        </div>
+
+        <!-- MODO PASTA -->
+        <div class="batch-pane" id="pane-pasta">
+          <label style="font-size:0.7rem;color:var(--muted);">Caminho da pasta:</label>
+          <input type="text" id="batchPasta" placeholder="C:\\Users\\voce\\Downloads\\EXTERNO"
+                 style="width:100%;margin:4px 0 8px;">
+          <label style="display:flex;align-items:center;gap:6px;font-size:0.72rem;color:var(--muted);">
+            <input type="checkbox" id="batchRec"> Incluir subpastas
+          </label>
+          <button class="btn" onclick="batchListar()" style="width:100%;margin:8px 0;">
+            Listar vídeos da pasta</button>
+          <div id="batchInfo" style="font-size:0.7rem;color:var(--muted);margin:6px 0;"></div>
+          <div id="batchList" class="batch-list">
+            <div class="batch-empty">Informe a pasta e clique em "Listar vídeos".</div>
+          </div>
+        </div>
+
+        <!-- MODO ZIP -->
+        <div class="batch-pane" id="pane-zip" style="display:none;">
+          <div id="batchDrop" class="batch-drop">
+            <div style="font-size:1.6rem;">📦</div>
+            Arraste aqui um <b>.zip</b> com os vídeos<br>
+            <span style="font-size:0.68rem;color:var(--muted);">ou clique para escolher</span>
+            <input type="file" id="batchZipInput" accept=".zip" style="display:none">
+          </div>
+          <div id="batchZipInfo" style="font-size:0.7rem;color:var(--muted);margin-top:6px;"></div>
+        </div>
+
+        <!-- MODO DRIVE -->
+        <div class="batch-pane" id="pane-drive" style="display:none;">
+          <label style="font-size:0.7rem;color:var(--muted);">Link de arquivo .zip público (Drive ou SharePoint):</label>
+          <input type="text" id="batchDrive" placeholder="Cole o link do .zip (Drive ou SharePoint)"
+                 style="width:100%;margin:4px 0 8px;">
+          <div class="batch-status warn" style="font-size:0.68rem;">
+            Funciona só para <b>arquivo .zip único e público</b> ("qualquer pessoa com o link"). Links de <b>pasta</b> ou que exigem login corporativo não funcionam. Arquivos grandes podem falhar — nesse caso baixe e use "Arrastar ZIP".
+          </div>
+        </div>
+
+        <label style="display:flex;align-items:center;gap:6px;font-size:0.72rem;color:var(--muted);margin:10px 0 4px;">
+          <input type="checkbox" id="batch1hz" checked> 1 ponto/seg (igual ao site)
+        </label>
+
+        <button class="btn btn-primary" id="batchStart" onclick="batchStart()"
+                style="width:100%;margin-top:8px;">CONVERTER TUDO</button>
+
+        <div class="vid-progress-bar" style="margin-top:10px;">
+          <div id="batchProgFill" class="vid-progress-fill" style="width:0%"></div>
+        </div>
+        <div id="batchProgLbl" style="font-size:0.7rem;color:var(--muted);margin-top:4px;"></div>
+      </div>
+    </div><!-- /panel-gopro -->
+
+  </aside>
+
+  <!-- MAP -->
+  <div class="map-wrap">
+    <div id="map"></div>
+
+    <div class="map-controls">
+      <button class="map-btn" onclick="fitToTrack()"     title="Centralizar no traçado">⊕</button>
+      <button class="map-btn" onclick="toggleSatellite()" title="Alternar satélite" id="satBtn">🛰</button>
+      <button class="map-btn" onclick="openStreetViewAtMapCenter()" title="Abrir Street View no centro do mapa">🧭</button>
+    </div>
+
+    <div class="map-info-bar">
+      <div class="info-item">🖱 Cursor: <span id="cursorCoords">—</span></div>
+      <div class="info-item">📍 Pontos selecionados: <span id="selectedCount">0 / 2</span></div>
+      <div class="info-item">📏 Trecho: <span id="sectionKm">—</span></div>
+    </div>
+  </div>
+
+</div><!-- /app-layout -->
+
+<!-- ══════════════════════════════════════════════════════════════════
+     MODAL — Novo Pino
+════════════════════════════════════════════════════════════════════ -->
+<div class="pin-modal-overlay" id="pinModal" style="display:none;">
+  <div class="pin-modal">
+    <div class="pin-modal-header">
+      <span>Novo Marco</span>
+      <button onclick="closePinModal()" class="pin-modal-close">✕</button>
+    </div>
+    <div class="pin-modal-body">
+      <div class="input-label" style="margin-bottom:6px;">RÓTULO</div>
+      <input type="text" id="pinLabel" placeholder="Ex: KM 342, Buraco, Sinalização..."
+        style="width:100%;margin-bottom:14px;"
+        onkeydown="if(event.key==='Enter') confirmPinModal()">
+      <div class="input-label" style="margin-bottom:8px;">CATEGORIA</div>
+      <div class="pin-cat-row" id="pinCatRow"></div>
+      <div style="display:flex; gap:8px; margin-top:4px;">
+        <input type="number" id="pinLat" placeholder="Lat" style="flex:1; font-size:0.72rem;" step="0.000001" readonly>
+        <input type="number" id="pinLng" placeholder="Lng" style="flex:1; font-size:0.72rem;" step="0.000001" readonly>
+      </div>
+    </div>
+    <div class="pin-modal-footer">
+      <button class="btn btn-secondary" onclick="closePinModal()">Cancelar</button>
+      <button class="btn btn-primary"   onclick="confirmPinModal()">✅ Salvar Marco</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     MODAL — Street View embutido
+════════════════════════════════════════════════════════════════════ -->
+<div class="sv-modal-overlay" id="svModal" onclick="if(event.target===this)closeStreetViewModal()">
+  <div class="sv-modal">
+    <div class="sv-modal-header">
+      <span>🧭 Street View</span>
+      <button onclick="closeStreetViewModal()" class="pin-modal-close">✕</button>
+    </div>
+    <div class="sv-modal-body" id="svModalBody"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     SCRIPTS  (order matters: map → cut → merge → points)
+════════════════════════════════════════════════════════════════════ -->
+<script src="js/api.js"></script>
+<script src="js/config.js"></script>
+<script src="js/streetview.js"></script>
+<script src="js/map.js"></script>
+<script src="js/kmcalc.js"></script>
+<script src="js/cut.js"></script>
+<script src="js/merge.js"></script>
+<script src="js/kmz.js"></script>
+<script src="js/points.js"></script>
+<script src="js/search.js"></script>
+<script src="js/video.js"></script>
+<script src="js/batch.js"></script>
+<!-- ══════════════════════════════════════════════════════════════════
+     TELA DE LOGIN
+════════════════════════════════════════════════════════════════════ -->
+<div id="loginOverlay" style="
+  position:fixed;inset:0;background:#000;z-index:99999;
+  display:flex;align-items:center;justify-content:center;
+">
+  <div style="
+    background:var(--surface);border:1px solid var(--border);border-radius:20px;
+    padding:40px;width:min(380px,94vw);text-align:center;
+  ">
+    <div style="width:80px;height:80px;margin:0 auto 16px;">
+      <img src="/logo.png" style="width:100%;height:100%;object-fit:contain;">
+    </div>
+    <h2 style="font-size:1.3rem;font-weight:800;margin-bottom:4px;">GPX IMTRAFF</h2>
+    <p style="font-size:.75rem;color:var(--muted);margin-bottom:28px;">Monitoramento de Trajetos</p>
+
+    <input id="loginNome" type="text" placeholder="Usuário" autocomplete="username"
+      style="width:100%;background:var(--surface2);border:1px solid var(--border);color:var(--text);
+      padding:12px 14px;border-radius:10px;font-family:'Syne',sans-serif;font-size:.9rem;
+      margin-bottom:10px;outline:none;"
+      onkeydown="if(event.key==='Enter')document.getElementById('loginSenha').focus()">
+
+    <input id="loginSenha" type="password" placeholder="Senha" autocomplete="current-password"
+      style="width:100%;background:var(--surface2);border:1px solid var(--border);color:var(--text);
+      padding:12px 14px;border-radius:10px;font-family:'Syne',sans-serif;font-size:.9rem;
+      margin-bottom:16px;outline:none;"
+      onkeydown="if(event.key==='Enter')fazerLogin()">
+
+    <button onclick="fazerLogin()" id="loginBtn"
+      style="width:100%;background:var(--accent2);color:#fff;border:none;padding:13px;
+      border-radius:10px;font-size:.9rem;font-weight:700;cursor:pointer;font-family:'Syne',sans-serif;">
+      Entrar
+    </button>
+    <div id="loginError" style="color:#e05555;font-size:.75rem;margin-top:10px;display:none;"></div>
+  </div>
+</div>
+
+<script>
+// ── Boot: verifica auth e conecta o app à API ──────────────────────
+(async function boot() {
+  if (!apiLogado()) return; // mantém overlay visível
+
+  try {
+    // Valida token ainda é válido
+    await apiFetch('/auth/me');
+    esconderLogin();
+    carregarDadosDoServidor();
+  } catch(_) {
+    await apiLogout();
+  }
+})();
+
+async function fazerLogin() {
+  const nome  = document.getElementById('loginNome').value.trim();
+  const senha = document.getElementById('loginSenha').value;
+  const errEl = document.getElementById('loginError');
+  const btn   = document.getElementById('loginBtn');
+  errEl.style.display = 'none';
+  if (!nome || !senha) { errEl.textContent = 'Preencha usuário e senha'; errEl.style.display = ''; return; }
+  btn.textContent = 'Entrando…';
+  btn.disabled = true;
+  try {
+    await apiLogin(nome, senha);
+    esconderLogin();
+    carregarDadosDoServidor();
+  } catch(e) {
+    errEl.textContent = e.message;
+    errEl.style.display = '';
+    btn.textContent = 'Entrar';
+    btn.disabled = false;
+  }
+}
+
+function esconderLogin() {
+  document.getElementById('loginOverlay').style.display = 'none';
+  document.getElementById('userBar').style.display = 'flex';
+  document.getElementById('userBadge').textContent = '👤 ' + apiNome();
+  if (apiIsAdmin()) document.getElementById('adminBtn').style.display = '';
+}
+
+async function fazerLogout() {
+  await apiLogout();
+  location.reload();
+}
+
+// ── Sincronização inicial: carrega dados salvos do usuário ──────────
+async function carregarDadosDoServidor() {
+  try {
+    // Config (KM offset, direção, posição do mapa)
+    const cfg = await apiGetConfig();
+    if (cfg && typeof kmDirection !== 'undefined') {
+      const intEl = document.getElementById('kmOffsetInt');
+      const decEl = document.getElementById('kmOffsetDec');
+      if (intEl && cfg.km_offset_int) intEl.value = cfg.km_offset_int;
+      if (decEl && cfg.km_offset_dec) decEl.value = cfg.km_offset_dec;
+      if (cfg.km_direction !== undefined && cfg.km_direction !== kmDirection) {
+        if (typeof toggleKmDirection === 'function') toggleKmDirection();
+      }
+      if (cfg.mapa_lat && cfg.mapa_lng && typeof map !== 'undefined') {
+        map.setView([cfg.mapa_lat, cfg.mapa_lng], cfg.mapa_zoom || 13);
+      }
+    }
+  } catch(_) {}
+
+  // Marcações salvas
+  try {
+    const marcacoes = await apiGetMarcacoes();
+    marcacoes.forEach(m => {
+      if (typeof addSavedPoint === 'function') {
+        addSavedPoint({ lat: m.lat, lng: m.lng, label: m.label,
+          color: m.color, category: m.category, note: m.note, serverId: m.id });
+      }
+    });
+  } catch(_) {}
+}
+
+// ── Auto-save de config a cada 60s ───────────────────────────────────
+setInterval(async () => {
+  if (!apiLogado() || typeof map === 'undefined') return;
+  try {
+    const c = map.getCenter();
+    const intEl = document.getElementById('kmOffsetInt');
+    const decEl = document.getElementById('kmOffsetDec');
+    await apiSalvarConfig({
+      km_offset_int: parseInt(intEl?.value) || 0,
+      km_offset_dec: parseInt(decEl?.value) || 0,
+      km_direction:  typeof kmDirection !== 'undefined' ? kmDirection : 1,
+      mapa_lat:  c.lat,
+      mapa_lng:  c.lng,
+      mapa_zoom: map.getZoom(),
+    });
+  } catch(_) {}
+}, 60000);
+</script>
+
+</body>
+</html>

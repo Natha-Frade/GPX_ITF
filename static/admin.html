@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GPX IMTRAFF — Admin</title>
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <link rel="apple-touch-icon" href="/favicon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #000; --surface: #1B1D21; --surface2: #232629;
+  --border: #2e3237; --accent: #73b753; --accent2: #216C3E;
+  --text: #fff; --muted: #7a8a7c; --danger: #e05555;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:var(--bg); color:var(--text); font-family:'Syne',sans-serif; min-height:100vh; }
+
+header {
+  background:var(--surface); border-bottom:1px solid var(--border);
+  padding:16px 28px; display:flex; align-items:center; justify-content:space-between;
+}
+.logo { display:flex; align-items:center; gap:12px; }
+.logo-dot { width:32px; height:32px; border-radius:50%; background:var(--accent2);
+  display:flex; align-items:center; justify-content:center; font-size:14px; }
+.logo h1 { font-size:1.1rem; font-weight:800; letter-spacing:.05em; }
+.logo span { font-size:.7rem; color:var(--muted); }
+.header-right { display:flex; align-items:center; gap:12px; }
+.user-badge { font-size:.75rem; color:var(--muted); }
+.btn-back { background:var(--surface2); border:1px solid var(--border); color:var(--text);
+  padding:7px 14px; border-radius:8px; cursor:pointer; font-size:.8rem; font-family:'Syne',sans-serif; }
+.btn-back:hover { border-color:var(--accent); color:var(--accent); }
+
+main { max-width:1100px; margin:0 auto; padding:32px 20px; }
+
+.stats-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin-bottom:32px; }
+.stat-card {
+  background:var(--surface); border:1px solid var(--border); border-radius:12px;
+  padding:20px; text-align:center;
+}
+.stat-num { font-size:2rem; font-weight:800; color:var(--accent); font-family:'JetBrains Mono',monospace; }
+.stat-label { font-size:.75rem; color:var(--muted); margin-top:4px; }
+
+.section { background:var(--surface); border:1px solid var(--border); border-radius:12px; margin-bottom:24px; overflow:hidden; }
+.section-header {
+  padding:16px 20px; border-bottom:1px solid var(--border);
+  display:flex; align-items:center; justify-content:space-between;
+}
+.section-title { font-size:.95rem; font-weight:700; }
+.online-dot { width:8px; height:8px; border-radius:50%; background:var(--accent);
+  display:inline-block; margin-right:6px; animation:pulse 2s infinite; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+
+table { width:100%; border-collapse:collapse; }
+th { padding:10px 16px; text-align:left; font-size:.7rem; color:var(--muted);
+  font-weight:600; letter-spacing:.05em; border-bottom:1px solid var(--border); }
+td { padding:12px 16px; font-size:.82rem; border-bottom:1px solid var(--border); }
+tr:last-child td { border-bottom:none; }
+tr:hover td { background:rgba(255,255,255,.02); }
+
+.badge {
+  display:inline-block; padding:2px 8px; border-radius:20px; font-size:.65rem; font-weight:700;
+}
+.badge-admin  { background:rgba(115,183,83,.15); color:var(--accent); border:1px solid rgba(115,183,83,.3); }
+.badge-online { background:rgba(115,183,83,.15); color:var(--accent); border:1px solid rgba(115,183,83,.3); }
+.badge-offline { background:rgba(255,255,255,.05); color:var(--muted); border:1px solid var(--border); }
+.badge-inactive { background:rgba(224,85,85,.1); color:var(--danger); border:1px solid rgba(224,85,85,.3); }
+
+.actions { display:flex; gap:6px; }
+.btn-sm {
+  padding:5px 10px; border-radius:6px; border:none; cursor:pointer;
+  font-size:.72rem; font-family:'Syne',sans-serif; font-weight:600;
+}
+.btn-edit   { background:var(--surface2); color:var(--text); border:1px solid var(--border); }
+.btn-edit:hover { border-color:var(--accent); color:var(--accent); }
+.btn-del    { background:rgba(224,85,85,.1); color:var(--danger); border:1px solid rgba(224,85,85,.3); }
+.btn-del:hover { background:rgba(224,85,85,.2); }
+.btn-kick   { background:rgba(224,85,85,.1); color:var(--danger); border:1px solid rgba(224,85,85,.3); }
+.btn-kick:hover { background:rgba(224,85,85,.2); }
+.btn-primary {
+  background:var(--accent2); color:#fff; border:none; padding:10px 20px;
+  border-radius:8px; cursor:pointer; font-size:.82rem; font-family:'Syne',sans-serif; font-weight:700;
+}
+.btn-primary:hover { background:var(--accent); }
+
+/* Modal */
+.modal-overlay {
+  position:fixed; inset:0; background:rgba(0,0,0,.85); z-index:999;
+  display:none; align-items:center; justify-content:center;
+}
+.modal-overlay.active { display:flex; }
+.modal {
+  background:var(--surface); border:1px solid var(--border); border-radius:16px;
+  padding:28px; width:min(420px, 94vw);
+}
+.modal h3 { margin-bottom:20px; font-size:1rem; }
+.form-group { margin-bottom:14px; }
+.form-label { font-size:.75rem; color:var(--muted); margin-bottom:5px; display:block; }
+.form-input {
+  width:100%; background:var(--surface2); border:1px solid var(--border);
+  color:var(--text); padding:10px 12px; border-radius:8px;
+  font-family:'Syne',sans-serif; font-size:.85rem;
+}
+.form-input:focus { outline:none; border-color:var(--accent); }
+.form-check { display:flex; align-items:center; gap:8px; margin-top:6px; font-size:.82rem; }
+.form-check input { width:16px; height:16px; accent-color:var(--accent); }
+.modal-footer { display:flex; gap:8px; justify-content:flex-end; margin-top:20px; }
+.btn-cancel { background:var(--surface2); color:var(--muted); border:1px solid var(--border);
+  padding:9px 16px; border-radius:8px; cursor:pointer; font-family:'Syne',sans-serif; }
+.error-msg { color:var(--danger); font-size:.75rem; margin-top:10px; display:none; }
+
+.empty-row td { text-align:center; color:var(--muted); padding:24px; }
+.refresh-btn { font-size:.7rem; color:var(--muted); background:none; border:none;
+  cursor:pointer; font-family:'Syne',sans-serif; padding:4px 8px; }
+.refresh-btn:hover { color:var(--text); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div style="width:36px;height:36px;display:flex;align-items:center;justify-content:center;">
+      <img src="/logo.png" style="width:32px;height:32px;object-fit:contain;">
+    </div>
+    <div>
+      <h1>GPX IMTRAFF</h1>
+      <span>Painel Administrativo</span>
+    </div>
+  </div>
+  <div class="header-right">
+    <span class="user-badge" id="adminNome"></span>
+    <button class="btn-back" onclick="location.href='/'">← Voltar ao App</button>
+    <button class="btn-back" onclick="fazerLogout()">Sair</button>
+  </div>
+</header>
+
+<main>
+  <!-- Stats -->
+  <div class="stats-grid">
+    <div class="stat-card">
+      <div class="stat-num" id="sTotal">—</div>
+      <div class="stat-label">Total de Usuários</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-num" id="sOnline">—</div>
+      <div class="stat-label">Online Agora</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-num" id="sMarcacoes">—</div>
+      <div class="stat-label">Marcações Salvas</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-num" id="sCortes">—</div>
+      <div class="stat-label">Cortes Salvos</div>
+    </div>
+  </div>
+
+  <!-- Online agora -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-title"><span class="online-dot"></span>Online Agora</div>
+      <button class="refresh-btn" onclick="carregarOnline()">↻ Atualizar</button>
+    </div>
+    <table>
+      <thead><tr><th>Usuário</th><th>Último Ping</th><th>Ação</th></tr></thead>
+      <tbody id="tbOnline"><tr class="empty-row"><td colspan="3">Ninguém online no momento</td></tr></tbody>
+    </table>
+  </div>
+
+  <!-- Usuários -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-title">Usuários</div>
+      <button class="btn-primary" onclick="abrirModalCriar()">+ Novo Usuário</button>
+    </div>
+    <table>
+      <thead><tr><th>Nome</th><th>Perfil</th><th>Status</th><th>Último Acesso</th><th>Criado em</th><th>Ações</th></tr></thead>
+      <tbody id="tbUsuarios"><tr class="empty-row"><td colspan="6">Carregando…</td></tr></tbody>
+    </table>
+  </div>
+</main>
+
+<!-- Modal Criar/Editar -->
+<div class="modal-overlay" id="modalOverlay" onclick="if(event.target===this)fecharModal()">
+  <div class="modal">
+    <h3 id="modalTitle">Novo Usuário</h3>
+    <div class="form-group">
+      <label class="form-label">Nome</label>
+      <input class="form-input" id="fNome" placeholder="nome do usuário">
+    </div>
+    <div class="form-group">
+      <label class="form-label" id="fSenhaLabel">Senha</label>
+      <input class="form-input" id="fSenha" type="password" placeholder="mínimo 4 caracteres">
+    </div>
+    <div class="form-check">
+      <input type="checkbox" id="fAdmin">
+      <label for="fAdmin">Administrador</label>
+    </div>
+    <div class="form-check" id="fAtivoRow" style="display:none">
+      <input type="checkbox" id="fAtivo" checked>
+      <label for="fAtivo">Conta ativa</label>
+    </div>
+    <div class="error-msg" id="modalError"></div>
+    <div class="modal-footer">
+      <button class="btn-cancel" onclick="fecharModal()">Cancelar</button>
+      <button class="btn-primary" id="modalBtn" onclick="salvarModal()">Criar</button>
+    </div>
+  </div>
+</div>
+
+<script src="/js/api.js"></script>
+<script>
+let editandoId = null;
+let usuariosCache = [];
+
+// ── Boot ──────────────────────────────────────────────────────────────
+(async function() {
+  if (!apiLogado() || !apiIsAdmin()) {
+    location.href = '/';
+    return;
+  }
+  document.getElementById('adminNome').textContent = '👤 ' + apiNome();
+  await Promise.all([carregarStats(), carregarUsuarios(), carregarOnline()]);
+  // Auto-refresh dos online a cada 30s
+  setInterval(carregarOnline, 30000);
+  setInterval(carregarStats, 30000);
+})();
+
+async function fazerLogout() {
+  await apiLogout();
+  location.href = '/';
+}
+
+// ── Stats ─────────────────────────────────────────────────────────────
+async function carregarStats() {
+  try {
+    const s = await apiStats();
+    document.getElementById('sTotal').textContent     = s.total_usuarios;
+    document.getElementById('sOnline').textContent    = s.usuarios_online;
+    document.getElementById('sMarcacoes').textContent = s.total_marcacoes;
+    document.getElementById('sCortes').textContent    = s.total_cortes;
+  } catch(e) {}
+}
+
+// ── Online ────────────────────────────────────────────────────────────
+async function carregarOnline() {
+  const tb = document.getElementById('tbOnline');
+  try {
+    const lista = await apiUsuariosOnline();
+    if (!lista.length) {
+      tb.innerHTML = '<tr class="empty-row"><td colspan="3">Ninguém online no momento</td></tr>';
+      return;
+    }
+    tb.innerHTML = lista.map(s => `
+      <tr>
+        <td><strong>${s.nome}</strong></td>
+        <td style="color:var(--muted);font-size:.75rem;">${formatarData(s.ultimo_ping)}</td>
+        <td><button class="btn-sm btn-kick" onclick="kickUsuario(${s.usuario_id}, '${s.nome}')">Desconectar</button></td>
+      </tr>
+    `).join('');
+  } catch(e) {
+    tb.innerHTML = '<tr class="empty-row"><td colspan="3">Erro ao carregar</td></tr>';
+  }
+}
+
+async function kickUsuario(uid, nome) {
+  if (!confirm(`Encerrar todas as sessões de ${nome}?`)) return;
+  await apiEncerrarSessoes(uid);
+  await carregarOnline();
+}
+
+// ── Usuários ──────────────────────────────────────────────────────────
+async function carregarUsuarios() {
+  const tb = document.getElementById('tbUsuarios');
+  try {
+    usuariosCache = await apiListarUsuarios();
+    if (!usuariosCache.length) {
+      tb.innerHTML = '<tr class="empty-row"><td colspan="6">Nenhum usuário</td></tr>';
+      return;
+    }
+    tb.innerHTML = usuariosCache.map(u => `
+      <tr>
+        <td><strong>${u.nome}</strong></td>
+        <td>${u.is_admin ? '<span class="badge badge-admin">Admin</span>' : '<span class="badge badge-offline">Usuário</span>'}</td>
+        <td>${u.ativo ? '<span class="badge badge-online">Ativo</span>' : '<span class="badge badge-inactive">Inativo</span>'}</td>
+        <td style="color:var(--muted);font-size:.75rem;">${u.ultimo_acesso ? formatarData(u.ultimo_acesso) : '—'}</td>
+        <td style="color:var(--muted);font-size:.75rem;">${formatarData(u.criado_em)}</td>
+        <td>
+          <div class="actions">
+            <button class="btn-sm btn-edit" onclick="abrirModalEditar(${u.id})">Editar</button>
+            <button class="btn-sm btn-del" onclick="deletarUsuario(${u.id}, '${u.nome}')">Remover</button>
+          </div>
+        </td>
+      </tr>
+    `).join('');
+  } catch(e) {
+    tb.innerHTML = '<tr class="empty-row"><td colspan="6">Erro ao carregar</td></tr>';
+  }
+}
+
+async function deletarUsuario(uid, nome) {
+  if (!confirm(`Remover ${nome} permanentemente? Todas as marcações e cortes serão perdidos.`)) return;
+  try {
+    await apiDeletarUsuario(uid);
+    await Promise.all([carregarUsuarios(), carregarStats()]);
+  } catch(e) {
+    alert(e.message);
+  }
+}
+
+// ── Modal ─────────────────────────────────────────────────────────────
+function abrirModalCriar() {
+  editandoId = null;
+  document.getElementById('modalTitle').textContent = 'Novo Usuário';
+  document.getElementById('modalBtn').textContent   = 'Criar';
+  document.getElementById('fNome').value  = '';
+  document.getElementById('fSenha').value = '';
+  document.getElementById('fAdmin').checked = false;
+  document.getElementById('fSenhaLabel').textContent = 'Senha';
+  document.getElementById('fAtivoRow').style.display = 'none';
+  document.getElementById('modalError').style.display = 'none';
+  document.getElementById('modalOverlay').classList.add('active');
+  document.getElementById('fNome').focus();
+}
+
+function abrirModalEditar(uid) {
+  const u = usuariosCache.find(u => u.id === uid);
+  if (!u) return;
+  editandoId = uid;
+  document.getElementById('modalTitle').textContent  = `Editar — ${u.nome}`;
+  document.getElementById('modalBtn').textContent    = 'Salvar';
+  document.getElementById('fNome').value             = u.nome;
+  document.getElementById('fSenha').value            = '';
+  document.getElementById('fAdmin').checked          = u.is_admin;
+  document.getElementById('fAtivo').checked          = u.ativo;
+  document.getElementById('fSenhaLabel').textContent = 'Nova Senha (deixe em branco para manter)';
+  document.getElementById('fAtivoRow').style.display = '';
+  document.getElementById('modalError').style.display = 'none';
+  document.getElementById('modalOverlay').classList.add('active');
+}
+
+function fecharModal() {
+  document.getElementById('modalOverlay').classList.remove('active');
+}
+
+async function salvarModal() {
+  const errEl = document.getElementById('modalError');
+  errEl.style.display = 'none';
+  const nome  = document.getElementById('fNome').value.trim();
+  const senha = document.getElementById('fSenha').value;
+  const admin = document.getElementById('fAdmin').checked;
+  const ativo = document.getElementById('fAtivo').checked;
+
+  if (!nome) { errEl.textContent = 'Nome obrigatório'; errEl.style.display = ''; return; }
+
+  try {
+    if (editandoId) {
+      const payload = { nome, is_admin: admin, ativo };
+      if (senha) payload.senha = senha;
+      await apiEditarUsuario(editandoId, payload);
+    } else {
+      if (!senha) { errEl.textContent = 'Senha obrigatória'; errEl.style.display = ''; return; }
+      await apiCriarUsuario({ nome, senha, is_admin: admin });
+    }
+    fecharModal();
+    await Promise.all([carregarUsuarios(), carregarStats()]);
+  } catch(e) {
+    errEl.textContent = e.message;
+    errEl.style.display = '';
+  }
+}
+
+// ── Utils ─────────────────────────────────────────────────────────────
+function formatarData(iso) {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleString('pt-BR', { dateStyle:'short', timeStyle:'short' });
+}
+</script>
+</body>
+</html>
