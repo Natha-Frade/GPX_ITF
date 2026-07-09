@@ -1,6 +1,0 @@
-﻿exiftool.exe
-exiftool_files/
-__pycache__/
-*.pyc
-gpx_imtraff.db
-.venv/
