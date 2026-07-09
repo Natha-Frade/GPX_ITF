@@ -61,3 +61,51 @@
 - O gpmf.js atual lê o stream **GPS5** (HERO11 testada por você). Se a
   equipe adotar HERO13 (que gravam só **GPS9**), me avise que a gente
   adiciona o parser GPS9 no mesmo arquivo.
+
+---
+
+# ATUALIZAÇÃO 2 — Vídeo, Street View e mapa
+
+## Novos arquivos / substituições (além dos anteriores)
+
+| Arquivo | Ação | O que faz |
+|---|---|---|
+| `static/js/video-export.js` | **CRIAR** | Corte e junção de MP4 no navegador (ffmpeg.wasm, sem re-encode) |
+| `static/js/video.js` | **SUBSTITUIR** | Exportar cortes em MP4, juntar vídeos, sincronia GPX↔vídeo, correção do bug de offset |
+| `static/js/cut.js` | **SUBSTITUIR** | Corte no GPX espelha automaticamente na timeline do vídeo |
+| `static/js/streetview.js` | **SUBSTITUIR** | Modo "percurso": anda pela trilha dentro do Street View (estilo Earth) |
+| `static/js/map.js` | **SUBSTITUIR** | Escala métrica, satélite híbrido com nomes de rodovias, tela cheia, clique-direito → Street View |
+| `static/index.html` | **SUBSTITUIR** | Botões e seções novas (já inclui as mudanças da aba GoPro) |
+
+## O que ficou possível
+
+**Vídeo — cortar e baixar de verdade.** Na aba Vídeo, defina os cortes na
+timeline e use "🎬 Exportar VÍDEOS dos Cortes (MP4)". O corte roda no seu
+navegador com ffmpeg em WebAssembly, usando stream copy: sem re-encode,
+sem perda de qualidade, rápido. Limitações honestas: o ponto de corte
+alinha ao keyframe anterior (~1s de folga na GoPro) e cada trecho
+exportado precisa caber na memória do navegador (~1.5 GB por trecho —
+o vídeo de ENTRADA pode ter qualquer tamanho, ele é montado, não copiado).
+Na primeira utilização baixa o motor (~31 MB, fica em cache).
+
+**Sincronia bidirecional GPX ↔ vídeo (por tempo).**
+- GPX → vídeo: com um vídeo vinculado, todo corte salvo na aba CORTAR GPX
+  aparece automaticamente na timeline do vídeo (mesma janela de tempo).
+- Vídeo → GPX: já existia ("Exportar GPXs dos Cortes") e foi CORRIGIDA:
+  o filtro de pontos não considerava o offset de sincronização.
+- "Exportar GPX + MP4 de tudo" baixa os pares de uma vez.
+
+**Juntar vídeos.** Seção nova na aba Vídeo: selecione os capítulos
+(GX010001 + GX020001...) e ele une em um MP4 só, sem re-encode. A ordem
+segue o nome dos arquivos.
+
+**Street View "modo Earth".** Botão 🚗 no mapa (ou clique DIREITO sobre a
+trilha): abre o Street View no ponto mais próximo, orientado no sentido
+do tráfego, com controles ◀ ▶ para andar ~25 m por passo e ⏯ Tour
+automático. Requer a API key no js/config.js (instruções lá). Custo:
+cada panorama conta na cota do Google (~US$ 14/1000 após o crédito
+gratuito de US$ 200/mês) — o tour é limitado a 1 pano/1,5 s por isso.
+
+**Mapa.** Escala métrica no canto; satélite agora é HÍBRIDO (nomes de
+rodovias e cidades por cima da imagem — as BR-xxx aparecem); botão ⛶ de
+tela cheia; Ctrl+clique copia a coordenada do cursor.

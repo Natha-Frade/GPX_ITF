@@ -634,6 +634,30 @@
         <button class="btn btn-primary" onclick="exportVideoCutsAsGpx()" style="width:100%;margin-top:8px;">
           Exportar GPXs dos Cortes
         </button>
+        <button class="btn btn-primary" id="vidExportMp4Btn" onclick="exportVideoCutsAsMP4()" style="width:100%;margin-top:6px;">
+          🎬 Exportar VÍDEOS dos Cortes (MP4)
+        </button>
+        <button class="btn btn-secondary" onclick="exportVideoCutsCompleto()" style="width:100%;margin-top:6px;">
+          Exportar GPX + MP4 de tudo
+        </button>
+        <div class="hint-text" style="margin-top:6px;">
+          O corte de vídeo roda no seu navegador, sem re-encode (rápido e sem perda).
+          O ponto de corte alinha ao keyframe (~1s de folga). Primeira vez baixa o motor (~31 MB).
+        </div>
+        <div class="vid-progress-bar" style="margin-top:6px;"><div id="vidExportFill" class="vid-progress-fill" style="width:0%;"></div></div>
+        <div id="vidExportStatus" style="font-size:0.65rem;color:var(--muted);margin-top:4px;"></div>
+      </div>
+
+      <!-- Juntar vídeos (capítulos da GoPro) -->
+      <div class="section">
+        <div class="section-title">Juntar Vídeos</div>
+        <div class="hint-text" style="margin-bottom:6px;">
+          Une capítulos da GoPro (GX010001 + GX020001...) em um MP4 só, sem re-encode.
+          A ordem segue o nome dos arquivos.
+        </div>
+        <button class="btn btn-primary" onclick="vidJoinPick()" style="width:100%;">
+          ➕ Selecionar vídeos para juntar
+        </button>
       </div>
 
     </div><!-- /panel-video -->
@@ -730,6 +754,8 @@
       <button class="map-btn" onclick="fitToTrack()"     title="Centralizar no traçado">⊕</button>
       <button class="map-btn" onclick="toggleSatellite()" title="Alternar satélite" id="satBtn">🛰</button>
       <button class="map-btn" onclick="openStreetViewAtMapCenter()" title="Abrir Street View no centro do mapa">🧭</button>
+      <button class="map-btn" onclick="svTourStart()" title="Percorrer a trilha no Street View (modo Earth) — ou clique direito na trilha">🚗</button>
+      <button class="map-btn" onclick="toggleFullscreen()" title="Tela cheia">⛶</button>
     </div>
 
     <div class="map-info-bar">
@@ -801,6 +827,7 @@
 <script src="js/gpmf.js"></script>
 <script src="js/batch-browser.js"></script>
 <script src="js/batch.js"></script>
+<script src="js/video-export.js"></script>
 <!-- ══════════════════════════════════════════════════════════════════
      TELA DE LOGIN
 ════════════════════════════════════════════════════════════════════ -->

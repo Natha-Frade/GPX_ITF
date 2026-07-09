@@ -664,6 +664,13 @@ function executeCut() {
   const cut = { id, name, pts, polyline: poly, startMarker: mkStart, endMarker: mkEnd, kmS, kmE, kmPerc, serverId: null };
   savedCuts.push(cut);
 
+  // Sincronia GPX → VÍDEO: se há vídeo vinculado e o trecho tem
+  // timestamps, espelha o corte na timeline do vídeo automaticamente.
+  if (typeof videoMirrorCutFromEpoch === 'function' &&
+      pts[0].time && pts.at(-1).time) {
+    videoMirrorCutFromEpoch(Date.parse(pts[0].time), Date.parse(pts.at(-1).time), name);
+  }
+
   // Sync com servidor
   if (typeof apiLogado === 'function' && apiLogado()) {
     const gpxNome = document.getElementById('fileStatus')?.textContent || '';

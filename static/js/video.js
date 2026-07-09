@@ -89,7 +89,10 @@ document.addEventListener('DOMContentLoaded', () => {
 // ──────────────────────────────────────────────────────────────────────
 //  CARREGAR VÍDEO
 // ──────────────────────────────────────────────────────────────────────
+let videoFileRef = null; // File original — usado pela exportação em MP4
+
 function loadVideo(file) {
+  videoFileRef = file;
   vidEl.src = URL.createObjectURL(file);
   vidEl.load();
   document.getElementById('vidFileName').textContent = file.name;
@@ -468,8 +471,9 @@ function exportVideoCutsAsGpx() {
     showToast('Vincule o GPX e defina cortes na timeline', 'error'); return;
   }
   videoCuts.forEach((cut, i) => {
+    // Mesma fórmula do interpolatePosition: epoch = start + offset + tVideo
     const ptsInRange = videoGpxPoints.filter(p => {
-      const t = p.epochSec - gpxStartEpoch;
+      const t = p.epochSec - gpxStartEpoch - videoOffsetSec;
       return t >= cut.startSec && t <= cut.endSec;
     });
     if (ptsInRange.length < 2) return;
@@ -569,4 +573,91 @@ function updateVidUI() {
 function onCutGpxLoaded() {
   updateVidUI();
   checkCompatibility();
+}
+
+// ══════════════════════════════════════════════════════════════════════
+//  SINCRONIA BIDIRECIONAL GPX ↔ VÍDEO  +  EXPORTAÇÃO EM MP4
+// ══════════════════════════════════════════════════════════════════════
+
+// Corte feito na aba CORTAR GPX → espelha na timeline do vídeo.
+// Recebe os epochs (ms) do primeiro/último ponto do trecho cortado e
+// converte para segundos de vídeo com a MESMA fórmula do
+// interpolatePosition: tVideo = epoch − gpxStartEpoch − offset.
+function videoMirrorCutFromEpoch(t0Ms, t1Ms, nome) {
+  if (!videoLinked || !videoDuration) return false;
+  let s = (t0Ms / 1000) - gpxStartEpoch - videoOffsetSec;
+  let e = (t1Ms / 1000) - gpxStartEpoch - videoOffsetSec;
+  if (e < s) [s, e] = [e, s];
+  // Clampa ao vídeo; ignora se o trecho cai totalmente fora dele
+  if (e <= 0 || s >= videoDuration) return false;
+  s = Math.max(0, s);
+  e = Math.min(videoDuration, e);
+  if (e - s < 0.5) return false;
+  videoCuts.push({ id: nextVidCutId++, startSec: s, endSec: e });
+  renderVideoCutRanges();
+  renderVideoCutsList();
+  showToast('Corte espelhado na timeline do vídeo' + (nome ? ' (' + nome + ')' : ''), 'success');
+  return true;
+}
+
+// ── Exportar os cortes da timeline como arquivos MP4 ──
+async function exportVideoCutsAsMP4() {
+  if (!videoFileRef) { showToast('Carregue um vídeo primeiro', 'error'); return; }
+  if (!videoCuts.length) { showToast('Defina cortes na timeline', 'error'); return; }
+  if (typeof videoExportarCortesMP4 !== 'function') {
+    showToast('video-export.js não carregado', 'error'); return;
+  }
+  const st = document.getElementById('vidExportStatus');
+  const fill = document.getElementById('vidExportFill');
+  const btn = document.getElementById('vidExportMp4Btn');
+  if (btn) btn.disabled = true;
+  try {
+    const cuts = [...videoCuts].sort((a, b) => a.startSec - b.startSec);
+    const n = await videoExportarCortesMP4(
+      videoFileRef, cuts,
+      msg => { if (st) st.textContent = msg; },
+      p   => { if (fill) fill.style.width = (p * 100).toFixed(0) + '%'; }
+    );
+    if (st) st.textContent = n + ' vídeo(s) exportado(s) — sem re-encode, corte no keyframe.';
+    showToast(n + ' MP4(s) baixado(s)', 'success');
+  } catch (e) {
+    if (st) st.textContent = 'Erro: ' + e.message;
+    showToast('Erro ao exportar: ' + e.message, 'error');
+  } finally {
+    if (btn) btn.disabled = false;
+    if (fill) setTimeout(() => { fill.style.width = '0%'; }, 1500);
+  }
+}
+
+// ── Exportar corte + GPX de uma vez (o combo que o levantamento usa) ──
+async function exportVideoCutsCompleto() {
+  exportVideoCutsAsGpx();
+  await exportVideoCutsAsMP4();
+}
+
+// ── Juntar vários vídeos (capítulos GX01/GX02...) em um só ──
+function vidJoinPick() {
+  const inp = document.createElement('input');
+  inp.type = 'file'; inp.accept = 'video/mp4,video/quicktime'; inp.multiple = true;
+  inp.onchange = async () => {
+    const files = [...inp.files].sort((a, b) => a.name.localeCompare(b.name));
+    if (files.length < 2) { showToast('Selecione 2 ou mais vídeos', 'error'); return; }
+    const st = document.getElementById('vidExportStatus');
+    const fill = document.getElementById('vidExportFill');
+    try {
+      await videoJuntarMP4(
+        files,
+        msg => { if (st) st.textContent = msg; },
+        p   => { if (fill) fill.style.width = (p * 100).toFixed(0) + '%'; }
+      );
+      if (st) st.textContent = 'Vídeo unido baixado (ordem: ' + files.map(f => f.name).join(' → ') + ')';
+      showToast('Vídeos unidos com sucesso', 'success');
+    } catch (e) {
+      if (st) st.textContent = 'Erro: ' + e.message;
+      showToast('Erro ao juntar: ' + e.message, 'error');
+    } finally {
+      if (fill) setTimeout(() => { fill.style.width = '0%'; }, 1500);
+    }
+  };
+  inp.click();
 }

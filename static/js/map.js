@@ -195,3 +195,66 @@ function addTrackArrows(latlngs, color, slotLabel) {
   markers.push(endArrow);
   return markers;
 }
+
+// ══════════════════════════════════════════════════════════════════════
+//  MELHORIAS DO MAPA (v8)
+// ══════════════════════════════════════════════════════════════════════
+
+// ── Escala métrica (canto inferior esquerdo) ──
+L.control.scale({ metric: true, imperial: false, position: 'bottomleft' }).addTo(map);
+
+// ── Modo híbrido: satélite + nomes de rodovias/cidades ──
+// Esri Reference sobreposta à World Imagery (BR-xxx aparecem no satélite)
+const labelsLayer = L.tileLayer(
+  'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}',
+  { maxZoom: 23, maxNativeZoom: 19, opacity: 0.9 }
+);
+const placesLayer = L.tileLayer(
+  'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',
+  { maxZoom: 23, maxNativeZoom: 19, opacity: 0.9 }
+);
+
+// Encapsula o toggleSatellite original para ligar/desligar os rótulos junto
+const _toggleSatOriginal = toggleSatellite;
+toggleSatellite = function () {
+  _toggleSatOriginal();
+  if (useSatellite) { labelsLayer.addTo(map); placesLayer.addTo(map); }
+  else { map.removeLayer(labelsLayer); map.removeLayer(placesLayer); }
+};
+
+// ── Tela cheia ──
+function toggleFullscreen() {
+  const el = document.documentElement;
+  if (!document.fullscreenElement) {
+    (el.requestFullscreen || el.webkitRequestFullscreen).call(el);
+  } else {
+    (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+  }
+}
+
+// ── Clique DIREITO no mapa: Street View no ponto da trilha mais próximo,
+//    já orientado no sentido do tráfego ──
+map.on('contextmenu', e => {
+  if (typeof gpxPoints === 'undefined' || !gpxPoints.length) {
+    openStreetView(e.latlng.lat, e.latlng.lng);
+    return;
+  }
+  const idx = nearestPointIndex(e.latlng.lat, e.latlng.lng);
+  const p = gpxPoints[idx];
+  // Abre já em modo percurso a partir desse ponto
+  if (typeof svTourStart === 'function' && STREETVIEW_EMBEDDED_ENABLED) {
+    map.setView([p.lat, p.lng], map.getZoom()); // svTourStart usa o centro
+    svTourStart();
+  } else {
+    openStreetView(p.lat, p.lng);
+  }
+});
+
+// ── Coordenada no clique: copia para a área de transferência com Ctrl ──
+map.on('click', e => {
+  if (e.originalEvent && e.originalEvent.ctrlKey) {
+    const txt = e.latlng.lat.toFixed(6) + ', ' + e.latlng.lng.toFixed(6);
+    navigator.clipboard?.writeText(txt).then(() =>
+      showToast('Coordenada copiada: ' + txt, 'success'));
+  }
+});
