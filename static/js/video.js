@@ -1,9 +1,4 @@
-// ══════════════════════════════════════════════════════════════════════
-//  video.js — v7
-//  - Compatibilidade GPX↔Vídeo por duração e timestamps
-//  - Timeline de corte estilo CapCut com handles arrastáveis
-//  - Sincronização por timestamp real ISO 8601
-// ══════════════════════════════════════════════════════════════════════
+// ── video.js — v7 ──
 
 // ── ESTADO DE SINCRONIA ──
 let videoGpxPoints  = [];
@@ -575,9 +570,7 @@ function onCutGpxLoaded() {
   checkCompatibility();
 }
 
-// ══════════════════════════════════════════════════════════════════════
-//  SINCRONIA BIDIRECIONAL GPX ↔ VÍDEO  +  EXPORTAÇÃO EM MP4
-// ══════════════════════════════════════════════════════════════════════
+// ── SINCRONIA BIDIRECIONAL GPX ↔ VÍDEO  +  EXPORTAÇÃO EM MP4 ──
 
 // Corte feito na aba CORTAR GPX → espelha na timeline do vídeo.
 // Recebe os epochs (ms) do primeiro/último ponto do trecho cortado e

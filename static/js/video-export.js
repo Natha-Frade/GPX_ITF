@@ -1,23 +1,11 @@
-// ══════════════════════════════════════════════════════════════════════
-//  video-export.js — Corte e junção de VÍDEO no navegador (ffmpeg.wasm)
-//
-//  Como funciona:
-//  - Carrega o ffmpeg compilado em WebAssembly (sob demanda, via CDN,
-//    ~31 MB na primeira vez — depois fica no cache do navegador).
-//  - Os cortes usam "stream copy" (-c copy): NÃO re-encoda o vídeo.
-//    É rápido (segundos) e sem perda de qualidade. O corte é alinhado
-//    ao keyframe anterior — na GoPro isso significa até ~1s antes do
-//    instante pedido.
-//  - A junção usa o concat demuxer (-c copy): ideal para capítulos da
-//    GoPro (GX010001 + GX020001 + ...), que têm codec idêntico.
-//  - O arquivo de entrada é MONTADO (WORKERFS), não copiado para a
-//    memória — por isso funciona com vídeos de vários GB. O que precisa
-//    caber na memória é só o TRECHO exportado (limite prático ~1.5 GB
-//    por trecho de saída).
-//
-//  Dependências (injetadas sob demanda, padrão do streetview.js):
-//    @ffmpeg/ffmpeg 0.12 (UMD) + @ffmpeg/util (UMD) + @ffmpeg/core (ST)
-// ══════════════════════════════════════════════════════════════════════
+// video-export.js
+// Corte e junção de video no navegador usando ffmpeg.wasm.
+// - Corte com stream copy (-c copy): sem re-encode, sem perda, rápido.
+//   O ponto de corte alinha ao keyframe anterior (~1s na GoPro).
+// - O arquivo de entrada é montado (WORKERFS), não copiado: funciona
+//   com videos de varios GB. Só o trecho de SAIDA precisa caber na
+//   memoria (limite pratico ~1.5 GB por trecho).
+// - Motor baixado sob demanda do CDN (~31 MB, fica em cache).
 
 (function () {
   'use strict';

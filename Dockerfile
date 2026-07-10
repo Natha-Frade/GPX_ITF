@@ -1,14 +1,7 @@
-# ══════════════════════════════════════════════════════════════════════
-#  Dockerfile — GPX IMTRAFF no Railway COM exiftool embutido
-#
-#  O Railway detecta este arquivo automaticamente (nome "Dockerfile",
-#  na raiz do repo) e passa a usá-lo no lugar do nixpacks.
-#
-#  O exiftool é um programa Perl multiplataforma — a versão .exe que
-#  você usa no Windows tem equivalente Linux instalável via apt.
-#  Depois deste deploy, as rotas /api/gopro/status, /converter-zip e
-#  /converter-drive funcionam direto na nuvem.
-# ══════════════════════════════════════════════════════════════════════
+# Dockerfile - GPX IMTRAFF no Railway com exiftool embutido.
+# O Railway detecta este arquivo na raiz do repo e usa no build.
+# O exiftool é um programa Perl multiplataforma: a versão .exe do
+# Windows tem equivalente Linux (pacote libimage-exiftool-perl).
 
 FROM python:3.12-slim
 

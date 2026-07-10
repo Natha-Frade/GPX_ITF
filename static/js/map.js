@@ -1,6 +1,4 @@
-// ══════════════════════════════════════════════════════════════════════
-//  map.js — Shared map setup and utilities
-// ══════════════════════════════════════════════════════════════════════
+// ── map.js — Shared map setup and utilities ──
 
 // ── MAP INITIALIZATION ──
 let satelliteLayer = null;
@@ -196,9 +194,7 @@ function addTrackArrows(latlngs, color, slotLabel) {
   return markers;
 }
 
-// ══════════════════════════════════════════════════════════════════════
-//  MELHORIAS DO MAPA (v8)
-// ══════════════════════════════════════════════════════════════════════
+// ── MELHORIAS DO MAPA (v8) ──
 
 // ── Escala métrica (canto inferior esquerdo) ──
 L.control.scale({ metric: true, imperial: false, position: 'bottomleft' }).addTo(map);

@@ -71,6 +71,13 @@ def admin_page():
 
 @app.get("/{full_path:path}")
 def frontend(full_path: str):
-    # Qualquer rota não-API serve o index.html
-    f = os.path.join(STATIC_DIR, "index.html")
-    return FileResponse(f)
+    # 1) Se o caminho corresponde a um arquivo real dentro de static/
+    #    (ex.: editor.html), serve o próprio arquivo.
+    #    abspath + startswith impede path traversal (../../etc/passwd).
+    if full_path:
+        static_abs = os.path.abspath(STATIC_DIR)
+        candidate  = os.path.abspath(os.path.join(static_abs, full_path))
+        if candidate.startswith(static_abs + os.sep) and os.path.isfile(candidate):
+            return FileResponse(candidate)
+    # 2) Senão, comportamento SPA: qualquer rota serve o index.html
+    return FileResponse(os.path.join(STATIC_DIR, "index.html"))

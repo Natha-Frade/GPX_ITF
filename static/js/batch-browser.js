@@ -1,16 +1,11 @@
-// ══════════════════════════════════════════════════════════════════════
-//  batch-browser.js — Conversão GoPro → GPX 100% NO NAVEGADOR
-//
-//  Não faz upload de nada: o gpmf.js lê os MP4 em chunks direto do
-//  disco do usuário (File API) e gera os .gpx localmente. Ideal para
-//  pastas do SharePoint sincronizadas via OneDrive — basta selecionar
-//  a pasta local sincronizada. Devolve um .zip com todos os GPX,
-//  preservando as subpastas.
-//
-//  Depende de: gpmf.js (extractGPMF, buildGPXFromPoints) e JSZip.
-//  Navegadores: Chrome/Edge usam showDirectoryPicker(); os demais
-//  caem no <input webkitdirectory>.
-// ══════════════════════════════════════════════════════════════════════
+// batch-browser.js
+// Conversão GoPro -> GPX 100% no navegador (modo "Navegador" da aba lote).
+// Nada é enviado ao servidor: o gpmf.js lê os MP4 em chunks direto do
+// disco e gera os .gpx localmente. Para pastas do SharePoint, basta
+// sincronizar a biblioteca pelo OneDrive e selecionar a pasta local.
+// Sai um .zip com todos os GPX, preservando subpastas.
+// Depende de: gpmf.js e JSZip. Chrome/Edge usam showDirectoryPicker();
+// os demais caem no <input webkitdirectory>.
 
 (function () {
   'use strict';

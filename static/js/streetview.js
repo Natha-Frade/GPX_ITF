@@ -1,17 +1,4 @@
-// ══════════════════════════════════════════════════════════════════════
-//  streetview.js — Street View embutido (google.maps.StreetViewPanorama)
-//
-//  Comportamento:
-//  - Com GOOGLE_MAPS_API_KEY configurada (config.js): abre um modal com
-//    o painel real do Google Street View — pegman, zoom progressivo,
-//    navegação 360°, igual Google Maps/Earth.
-//  - Sem key configurada: fallback automático para o link externo
-//    (abre o Street View em nova aba, sem custo, sem key).
-//
-//  A API do Google Maps só é carregada (injetada via <script>) na
-//  primeira vez que o painel embutido é aberto — não pesa no carregamento
-//  inicial do app, e nunca carrega se a key não estiver configurada.
-// ══════════════════════════════════════════════════════════════════════
+// ── streetview.js — Street View embutido (google.maps.StreetViewPanorama) ──
 
 let gmapsApiLoadPromise = null;
 let svPanoramaInstance  = null;
@@ -115,20 +102,7 @@ function closeStreetViewModal() {
   svPanoramaInstance = null;
 }
 
-// ══════════════════════════════════════════════════════════════════════
-//  MODO PERCURSO — "Google Earth" da trilha carregada
-//
-//  Percorre a trilha GPX dentro do Street View: a cada passo avança
-//  ~PASSO_M metros ao longo do traçado e orienta a câmera no rumo da
-//  via (bearing até o próximo ponto). Controles: ◀ passo atrás,
-//  ▶ passo à frente, ⏯ tour automático, ESC fecha.
-//
-//  💰 Custo: cada panorama carregado conta na cota do Google
-//  (Dynamic Street View). O tour automático é limitado a 1 pano/1.5s
-//  e o passo mínimo evita recarregar o mesmo pano. Uso interno da
-//  equipe dificilmente sai do crédito mensal gratuito, mas evite
-//  deixar o tour rodando sem necessidade.
-// ══════════════════════════════════════════════════════════════════════
+// ── MODO PERCURSO — "Google Earth" da trilha carregada ──
 
 let svTourIdx    = -1;
 let svTourTimer  = null;

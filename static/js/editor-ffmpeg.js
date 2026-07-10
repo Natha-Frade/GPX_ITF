@@ -1,13 +1,8 @@
-// ══════════════════════════════════════════════════════════════════════
-//  editor-ffmpeg.js — Exportação profissional do Editor (ffmpeg.wasm)
-//
-//  Substitui o download por MediaRecorder (que re-encodava em tempo
-//  real, lento e com perda) por corte real com stream copy, e adiciona
-//  a exportação da TIMELINE INTEIRA: apara cada clipe conforme os
-//  handles e concatena tudo em um único MP4, sem re-encode.
-//
-//  Depende de: video-export.js (loader do ffmpeg) e editor-page.js.
-// ══════════════════════════════════════════════════════════════════════
+// editor-ffmpeg.js
+// Exportação do Editor usando ffmpeg.wasm (video-export.js).
+// Substitui o MediaRecorder (re-encodava em tempo real, com perda)
+// por corte real com stream copy, e adiciona a exportação da
+// timeline inteira: apara cada clipe e concatena em um MP4 só.
 
 (function () {
   'use strict';
