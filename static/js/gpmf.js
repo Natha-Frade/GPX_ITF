@@ -24,6 +24,14 @@ async function extractGPMF(file, onProgress) {
   const timestamps = [];   // GPSU strings indexadas por bloco
   let   blockIdx = 0;
 
+  // ── GPS9 (HERO11+) ──
+  // Formato: 9 campos por amostra (32 bytes): lat, lon, alt, spd2d, spd3d,
+  // dias desde 2000, segundos do dia, DOP, fix — com timestamp POR AMOSTRA.
+  // Escalas padrão da GoPro (atualizadas se um SCAL de 9 valores aparecer).
+  const points9 = [];
+  let   scal9   = [10000000, 10000000, 1000, 1000, 100, 1, 1000, 100, 1];
+  const seen9   = new Set();  // dedup entre chunks (overlap relê trechos)
+
   onProgress && onProgress(0, 'Iniciando leitura do arquivo...');
 
   while (offset < size) {
@@ -53,6 +61,22 @@ async function extractGPMF(file, onProgress) {
         }
         if (scal === 0) scal = 10000000;
       }
+    }
+
+    // Procura SCAL de 9 valores (escalas do GPS9) em qualquer posição do chunk
+    let scalPos = 0;
+    while (true) {
+      const sj = findBytes(bytes, [0x53,0x43,0x41,0x4C], scalPos);
+      if (sj === -1) break;
+      const klv = readKLV(bytes, sj);
+      if (klv && klv.type === 'l' && klv.size === 4 && klv.repeat === 9) {
+        const dv = new DataView(klv.payload.buffer, klv.payload.byteOffset);
+        const arr = [];
+        for (let k = 0; k < 9; k++) arr.push(dv.getInt32(k * 4) || 1);
+        scal9 = arr;
+        break;  // as escalas não mudam dentro do arquivo
+      }
+      scalPos = sj + 4;
     }
 
     // Procura todos os GPSU timestamps neste chunk
@@ -93,9 +117,49 @@ async function extractGPMF(file, onProgress) {
       gps5Pos = gi + 4;
     }
 
-    onProgress && onProgress(Math.round((end / size) * 100), `${points.length} pontos GPS encontrados...`);
-    offset = end - GPMF_OVERLAP;  // overlap para não perder KLVs na junção
-    if (offset <= 0) offset = end; // evita loop infinito no final
+    // Procura todos os GPS9 neste chunk (HERO11+; timestamp por amostra)
+    let gps9Pos = 0;
+    while (true) {
+      const gi = findBytes(bytes, [0x47,0x50,0x53,0x39], gps9Pos); // GPS9
+      if (gi === -1) break;
+      const klv = readKLV(bytes, gi);
+      if (klv && klv.size === 32 && klv.repeat > 0) {
+        const dv = new DataView(klv.payload.buffer, klv.payload.byteOffset);
+        for (let i = 0; i < klv.repeat; i++) {
+          const base = i * 32;
+          if (base + 32 > klv.payload.length) break;
+          const lat  = dv.getInt32(base +  0) / scal9[0];
+          const lon  = dv.getInt32(base +  4) / scal9[1];
+          const alt  = dv.getInt32(base +  8) / scal9[2];
+          const spd  = dv.getInt32(base + 12) / scal9[3];
+          const days = dv.getInt32(base + 20) / scal9[5];
+          const secs = dv.getInt32(base + 24) / scal9[6];
+          const fix  = dv.getUint16(base + 30) / scal9[8];
+          if (fix === 0) continue;                      // sem trava de GPS
+          if (Math.abs(lat) < 0.001 && Math.abs(lon) < 0.001) continue;
+          const ms = Date.UTC(2000, 0, 1) + days * 86400000 + secs * 1000;
+          const key = Math.round(ms);                   // dedup do overlap
+          if (seen9.has(key)) continue;
+          seen9.add(key);
+          points9.push({ lat, lon, alt, spd, ts: new Date(ms).toISOString() });
+        }
+      }
+      gps9Pos = gi + 4;
+    }
+
+    onProgress && onProgress(Math.round((end / size) * 100), `${Math.max(points.length, points9.length)} pontos GPS encontrados...`);
+    if (end >= size) break;         // fim do arquivo (evita loop infinito no último chunk)
+    offset = end - GPMF_OVERLAP;    // overlap para não perder KLVs na junção
+  }
+
+  // ── ESCOLHA DO STREAM ──
+  // GPS9 (HERO11+) tem timestamp por amostra — é o dado mais confiável.
+  // GPS5 (câmeras antigas) usa GPSU distribuído. Em câmeras novas o GPS5
+  // costuma vir vazio, por isso a preferência pelo GPS9.
+  if (points9.length) {
+    points9.sort((a, b) => (a.ts < b.ts ? -1 : 1));
+    onProgress && onProgress(100, `Concluído — ${points9.length} pontos GPS (GPS9)`);
+    return { points: points9, device };
   }
 
   // Adiciona timestamps aos pontos (18Hz GPS, GPSU a ~1Hz)

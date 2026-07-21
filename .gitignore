@@ -1,2 +1,7 @@
-
 gpx_imtraff.db
+*.db
+__pycache__/
+*.pyc
+editor-src/node_modules/
+static/editor/
+.DS_Store

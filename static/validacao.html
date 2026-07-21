@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Validação de Campo — GPX IMTRAFF</title>
+<style>
+  :root{
+    --asfalto:#2b2e31;       /* texto principal */
+    --concreto:#f2f1ed;      /* fundo */
+    --placa-verde:#00693c;   /* sinalização de indicação */
+    --placa-verde-esc:#00542f;
+    --faixa-amarela:#f5b800; /* advertência */
+    --alerta:#c0392b;
+    --linha:#d8d6cf;
+    --card:#ffffff;
+    --mono:ui-monospace,'Cascadia Mono','Roboto Mono',Consolas,monospace;
+  }
+  *{box-sizing:border-box;margin:0}
+  body{font:15px/1.5 'Segoe UI',Roboto,system-ui,sans-serif;color:var(--asfalto);
+       background:var(--concreto);padding-bottom:80px}
+  header{background:var(--asfalto);color:#fff;padding:14px 24px;
+         display:flex;align-items:center;gap:14px}
+  header .marco{background:var(--placa-verde);border:2px solid #fff;
+    border-radius:6px;padding:3px 10px;font-weight:700;font-size:13px;
+    letter-spacing:.5px}
+  header h1{font-size:17px;font-weight:600}
+  header small{opacity:.65;margin-left:auto;font-size:12px}
+  main{max-width:1060px;margin:26px auto;padding:0 20px}
+
+  /* etapa = marco quilométrico */
+  .etapa{display:flex;align-items:baseline;gap:10px;margin:30px 0 12px}
+  .etapa .km{background:#fff;border:2px solid var(--asfalto);border-radius:4px;
+    font-family:var(--mono);font-weight:700;font-size:13px;padding:2px 9px}
+  .etapa h2{font-size:16px;font-weight:600}
+  .etapa p{color:#6b6e72;font-size:13px}
+
+  .grade{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:700px){.grade{grid-template-columns:1fr}}
+  .card{background:var(--card);border:1px solid var(--linha);border-radius:10px;
+        padding:16px 18px}
+  .card h3{font-size:14px;margin-bottom:6px}
+  .card .estado{font-size:13px;color:#6b6e72;margin-bottom:12px;min-height:20px}
+  .card .estado.ok{color:var(--placa-verde);font-weight:600}
+  .card .estado.erro{color:var(--alerta)}
+
+  input[type=file]{display:none}
+  .botao{display:inline-block;background:var(--placa-verde);color:#fff;border:0;
+    border-radius:8px;padding:9px 18px;font-size:14px;font-weight:600;
+    cursor:pointer;transition:background .15s}
+  .botao:hover{background:var(--placa-verde-esc)}
+  .botao.secundario{background:#fff;color:var(--asfalto);
+    border:1.5px solid var(--asfalto)}
+  .botao:disabled{opacity:.45;cursor:not-allowed}
+
+  /* zona de envio com faixa tracejada de rodovia */
+  .zona{border:2px dashed var(--faixa-amarela);background:#fff;border-radius:12px;
+    padding:34px 20px;text-align:center;cursor:pointer;transition:background .15s}
+  .zona.arrasto{background:#fdf6df}
+  .zona p{color:#6b6e72;font-size:13px;margin-top:6px}
+  .zona .lista{font-family:var(--mono);font-size:12px;color:var(--asfalto);
+    margin-top:10px;text-align:left;max-height:120px;overflow:auto}
+
+  .acao{margin-top:14px;display:flex;gap:10px;align-items:center}
+  .rodando{display:none;font-size:13px;color:#6b6e72}
+
+  /* relatório */
+  table{width:100%;border-collapse:collapse;background:#fff;border:1px solid var(--linha);
+        border-radius:10px;overflow:hidden;font-size:13.5px}
+  th{background:var(--asfalto);color:#fff;text-align:left;padding:9px 12px;
+     font-size:12px;letter-spacing:.4px;font-weight:600}
+  td{padding:9px 12px;border-top:1px solid var(--linha);vertical-align:top}
+  td.mono{font-family:var(--mono);font-size:12px}
+  .chip{display:inline-block;border-radius:5px;padding:2px 9px;font-size:12px;
+    font-weight:700;color:#fff;border:1.5px solid rgba(255,255,255,.7);
+    box-shadow:0 0 0 1.5px currentColor inset}
+  .chip.completo{background:var(--placa-verde)}
+  .chip.parcial{background:var(--faixa-amarela);color:var(--asfalto)}
+  .chip.insuficiente{background:var(--alerta)}
+  .barra{height:7px;border-radius:4px;background:var(--linha);margin-top:5px;
+    overflow:hidden;min-width:90px}
+  .barra i{display:block;height:100%;background:var(--placa-verde)}
+  .aviso{background:#fdf6df;border-left:4px solid var(--faixa-amarela);
+    padding:8px 12px;border-radius:0 8px 8px 0;font-size:13px;margin-top:10px}
+  .problema{background:#fdeceb;border-left:4px solid var(--alerta);
+    padding:8px 12px;border-radius:0 8px 8px 0;font-size:13px;margin-top:10px}
+  #secRelatorio{display:none}
+  .resumo{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+  .resumo .num{background:#fff;border:1px solid var(--linha);border-radius:10px;
+    padding:10px 16px;text-align:center}
+  .resumo .num b{display:block;font-size:22px}
+  .resumo .num span{font-size:12px;color:#6b6e72}
+</style>
+</head>
+<body>
+<header>
+  <span class="marco">BR-153</span>
+  <h1>Validação de Campo</h1>
+  <small>GPX IMTRAFF · identificação por coordenada</small>
+</header>
+<main>
+
+  <div class="etapa"><span class="km">km 1</span>
+    <h2>Referências</h2><p>KMZ dos dispositivos e planilha de controle — carregue uma vez, vale para todos os lotes.</p>
+  </div>
+  <div class="grade">
+    <div class="card">
+      <h3>KMZ de dispositivos</h3>
+      <div class="estado" id="estKmz">Verificando…</div>
+      <label class="botao secundario">Enviar KMZ
+        <input type="file" id="inKmz" accept=".kmz,.kml"></label>
+    </div>
+    <div class="card">
+      <h3>Planilha de controle (SharePoint/Excel)</h3>
+      <div class="estado" id="estPlan">Verificando…</div>
+      <label class="botao secundario">Enviar planilha
+        <input type="file" id="inPlan" accept=".xlsx,.xlsm"></label>
+    </div>
+  </div>
+
+  <div class="etapa"><span class="km">km 2</span>
+    <h2>Lote do dia</h2><p>Arraste os GPX brutos ou o ZIP do cartão. Pastas com "interno"/"externo" no nome são reconhecidas.</p>
+  </div>
+  <div class="zona" id="zona">
+    <b>Solte os arquivos aqui</b> ou clique para escolher
+    <p>.gpx ou .zip — sem renomear nada antes</p>
+    <div class="lista" id="listaArqs"></div>
+    <input type="file" id="inLote" multiple accept=".gpx,.zip">
+  </div>
+  <div class="acao">
+    <button class="botao" id="btProcessar" disabled>Validar lote</button>
+    <span class="rodando" id="rodando">Processando… identificando dispositivos por coordenada.</span>
+  </div>
+
+  <div class="etapa"><span class="km">km 3</span>
+    <h2>Relatório</h2><p>O que foi filmado, o que ficou incompleto e o nome certo de cada arquivo.</p>
+  </div>
+  <section id="secRelatorio">
+    <div class="resumo" id="resumo"></div>
+    <table>
+      <thead><tr>
+        <th>Dispositivo (KMZ)</th><th>Corte (planilha)</th><th>Situação</th>
+        <th>Cobertura</th><th>Origem</th><th>Arquivos gerados</th>
+      </tr></thead>
+      <tbody id="linhas"></tbody>
+    </table>
+    <div id="pendencias"></div>
+    <div class="acao">
+      <a class="botao" id="btBaixar" href="#">Baixar ZIP renomeado</a>
+    </div>
+  </section>
+
+</main>
+<script>
+const $ = s => document.querySelector(s);
+let arquivosLote = [];
+
+async function statusRef(){
+  try{
+    const r = await (await fetch('/validacao/referencia/status')).json();
+    const k = r.kmz, p = r.planilha;
+    $('#estKmz').textContent = k.carregado
+      ? `${k.arquivo} — ${k.dispositivos} dispositivos` : 'Nenhum KMZ carregado';
+    $('#estKmz').className = 'estado' + (k.carregado ? ' ok' : '');
+    $('#estPlan').textContent = p.carregado
+      ? `${p.arquivo} — ${p.cortes} cortes` : 'Nenhuma planilha carregada';
+    $('#estPlan').className = 'estado' + (p.carregado ? ' ok' : '');
+  }catch(e){
+    $('#estKmz').textContent = $('#estPlan').textContent = 'Servidor indisponível';
+  }
+}
+
+async function subirRef(input, rota, alvo){
+  const f = input.files[0]; if(!f) return;
+  $(alvo).textContent = 'Enviando…'; $(alvo).className = 'estado';
+  const fd = new FormData(); fd.append('arquivo', f);
+  const resp = await fetch(rota, {method:'POST', body: fd});
+  if(!resp.ok){
+    const e = await resp.json().catch(()=>({detail:'Falha no envio'}));
+    $(alvo).textContent = e.detail; $(alvo).className = 'estado erro'; return;
+  }
+  statusRef();
+}
+$('#inKmz').onchange = () => subirRef($('#inKmz'), '/validacao/referencia/kmz', '#estKmz');
+$('#inPlan').onchange = () => subirRef($('#inPlan'), '/validacao/referencia/planilha', '#estPlan');
+
+/* zona de lote */
+const zona = $('#zona');
+zona.onclick = () => $('#inLote').click();
+zona.ondragover = e => { e.preventDefault(); zona.classList.add('arrasto'); };
+zona.ondragleave = () => zona.classList.remove('arrasto');
+zona.ondrop = e => {
+  e.preventDefault(); zona.classList.remove('arrasto');
+  adicionar([...e.dataTransfer.files]);
+};
+$('#inLote').onchange = () => adicionar([...$('#inLote').files]);
+function adicionar(fs){
+  arquivosLote = arquivosLote.concat(fs);
+  $('#listaArqs').innerHTML = arquivosLote.map(f=>f.name).join('<br>');
+  $('#btProcessar').disabled = arquivosLote.length === 0;
+}
+
+$('#btProcessar').onclick = async () => {
+  $('#btProcessar').disabled = true; $('#rodando').style.display = 'inline';
+  const fd = new FormData();
+  arquivosLote.forEach(f => fd.append('arquivos', f));
+  const resp = await fetch('/validacao/lote', {method:'POST', body: fd});
+  $('#rodando').style.display = 'none'; $('#btProcessar').disabled = false;
+  if(!resp.ok){
+    const e = await resp.json().catch(()=>({detail:'Falha ao processar'}));
+    alert(e.detail); return;
+  }
+  desenhar(await resp.json());
+};
+
+function desenhar(rel){
+  const g = rel.grupos, comp = g.filter(x=>x.situacao==='COMPLETO').length;
+  $('#resumo').innerHTML = `
+    <div class="num"><b>${g.length}</b><span>dispositivos no lote</span></div>
+    <div class="num"><b>${comp}</b><span>completos</span></div>
+    <div class="num"><b>${g.length-comp}</b><span>para revisar</span></div>
+    <div class="num"><b>${rel.nao_identificados.length}</b><span>não identificados</span></div>
+    <div class="num"><b>${rel.duplicatas.length}</b><span>duplicatas</span></div>`;
+  $('#linhas').innerHTML = g.map(x => `
+    <tr>
+      <td>${x.dispositivo}<br><span class="mono">km ${x.km}</span></td>
+      <td>${x.corte}</td>
+      <td><span class="chip ${x.situacao.toLowerCase()}">${x.situacao}</span></td>
+      <td>${x.cobertura_uniao_pct}%<div class="barra"><i style="width:${x.cobertura_uniao_pct}%"></i></div></td>
+      <td>${(x.origens||[]).join(' + ')}</td>
+      <td class="mono">${x.arquivos_gerados.join('<br>')}</td>
+    </tr>`).join('');
+  let pend = '';
+  g.forEach(x => (x.avisos||[]).forEach(a =>
+    pend += `<div class="aviso"><b>${x.dispositivo}:</b> ${a}</div>`));
+  rel.nao_identificados.forEach(n =>
+    pend += `<div class="problema"><b>${n.arquivo}</b> não bate com nenhum dispositivo do KMZ
+      (mais próximo: ${n.mais_proximo || '—'} a ${n.dist_min_m ?? '?'} m). Confira se é trecho contínuo ou refilmagem fora do dispositivo.</div>`);
+  rel.duplicatas.forEach(d =>
+    pend += `<div class="aviso"><b>${d.arquivo}</b> é cópia exata de <b>${d.igual_a}</b> — ignorado no ZIP.</div>`);
+  $('#pendencias').innerHTML = pend;
+  $('#btBaixar').href = rel.download;
+  $('#secRelatorio').style.display = 'block';
+  $('#secRelatorio').scrollIntoView({behavior:'smooth'});
+}
+
+statusRef();
+</script>
+</body>
+</html>

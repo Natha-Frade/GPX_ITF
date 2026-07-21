@@ -59,7 +59,8 @@
   <button class="tab-btn"        onclick="switchTab('pontos')"> MARCAÇÕES</button>
   <button class="tab-btn"        onclick="switchTab('video')"> VÍDEO + GPX</button>
   <button class="tab-btn"        onclick="switchTab('gopro')"> GOPRO → GPX (LOTE)</button>
-  <!-- <a class="tab-btn" href="editor.html" target="_blank">🎞 EDITOR</a>-->
+   <a class="tab-btn" href="/editor/" target="_blank">🎞 EDITOR</a>
+   <a class="tab-btn" href="validacao.html" target="_blank">🎞 VALIDAÇÃO</a>
 </div>
 
 <!-- ══════════════════════════════════════════════════════════════════
@@ -594,7 +595,11 @@
         <button class="btn btn-primary" id="vidLinkBtn" onclick="linkGpxToVideo()" style="width:100%;margin-top:10px;" disabled>
           🔗 Vincular GPX ao Vídeo
         </button>
-        <div class="hint-text" style="margin-top:7px;">Carregue o GPX na aba <strong>CORTAR GPX</strong> antes de vincular.</div>
+        <button class="btn btn-secondary" id="vidGpsBtn" onclick="useVideoGps()" style="width:100%;margin-top:8px;">
+          📡 Usar GPS do próprio vídeo (GoPro)
+        </button>
+        <div id="vidGpsProgress" class="hint-text" style="margin-top:5px;display:none;"></div>
+        <div class="hint-text" style="margin-top:7px;">Carregue um GPX na aba <strong>CORTAR GPX</strong> e vincule — ou, para vídeo original da GoPro, use o GPS do próprio vídeo.</div>
       </div>
 
       <!-- Offset -->

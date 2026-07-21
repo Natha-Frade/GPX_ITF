@@ -4,10 +4,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from sqlalchemy import text
-
+from validacao.router import router as validacao_router
 from .database import engine, Base, SessionLocal
 from . import models, auth
-from .routers import admin, dados, gopro, sharepoint
+from .routers import admin, dados, gopro, sharepoint, sharepoint_media
 
 # Cria tabelas
 Base.metadata.create_all(bind=engine)
@@ -47,7 +47,8 @@ app.include_router(admin.router,  prefix="/api")
 app.include_router(dados.router,  prefix="/api")
 app.include_router(gopro.router,  prefix="/api")
 app.include_router(sharepoint.router, prefix="/api")
-
+app.include_router(sharepoint_media.router, prefix="/api")
+app.include_router(validacao_router)
 # ── Serve o frontend estático ─────────────────────────────────────────
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "..", "static")
 
@@ -55,6 +56,12 @@ if os.path.isdir(os.path.join(STATIC_DIR, "js")):
     app.mount("/js",  StaticFiles(directory=os.path.join(STATIC_DIR, "js")),  name="js")
 if os.path.isdir(os.path.join(STATIC_DIR, "css")):
     app.mount("/css", StaticFiles(directory=os.path.join(STATIC_DIR, "css")), name="css")
+
+# Editor de vídeo (build do Vite em static/editor). html=True faz o /editor/
+# servir o index.html do SPA. Precisa vir ANTES do catch-all lá embaixo.
+EDITOR_DIR = os.path.join(STATIC_DIR, "editor")
+if os.path.isdir(EDITOR_DIR):
+    app.mount("/editor", StaticFiles(directory=EDITOR_DIR, html=True), name="editor")
 
 @app.get("/logo.png")
 def logo():

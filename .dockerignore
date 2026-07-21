@@ -1,0 +1,7 @@
+# não copiar dependências/artefatos locais para a imagem (o build gera tudo)
+editor-src/node_modules
+**/__pycache__
+*.pyc
+gpx_imtraff.db
+*.db
+.git

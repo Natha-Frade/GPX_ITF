@@ -654,3 +654,67 @@ function vidJoinPick() {
   };
   inp.click();
 }
+
+// ──────────────────────────────────────────────────────────────────────
+//  GPS DO PRÓPRIO VÍDEO (GoPro GPMF — GPS5/GPS9)
+//  Extrai a trilha de GPS embutida no vídeo carregado, gera o GPX em
+//  memória, carrega no mapa (mesmo fluxo do parseGPX) e vincula ao
+//  vídeo automaticamente — conferência pronta: play no vídeo e o
+//  marcador acompanha a posição no mapa.
+//  Obs.: só funciona com vídeo ORIGINAL da GoPro. Vídeos re-exportados
+//  por editores (CapCut, Premiere...) perdem a trilha de GPS.
+// ──────────────────────────────────────────────────────────────────────
+async function useVideoGps() {
+  if (!videoFileRef) { showToast('Carregue um vídeo primeiro', 'error'); return; }
+  if (typeof extractGPMF !== 'function' || typeof buildGPXFromPoints !== 'function') {
+    showToast('Extrator GPMF não carregado (gpmf.js)', 'error'); return;
+  }
+  const btn  = document.getElementById('vidGpsBtn');
+  const prog = document.getElementById('vidGpsProgress');
+  if (btn)  { btn.disabled = true; btn.textContent = 'Lendo GPS do vídeo…'; }
+  if (prog) { prog.style.display = 'block'; prog.textContent = '0%'; }
+
+  try {
+    const result = await extractGPMF(videoFileRef, (pct, msg) => {
+      if (prog) prog.textContent = pct + '% — ' + (msg || '');
+    });
+
+    if (!result || !result.points || !result.points.length) {
+      showToast('Este vídeo não tem GPS. Vídeos exportados por editores ' +
+                '(CapCut etc.) perdem a trilha — use o arquivo original da GoPro.', 'error');
+      return;
+    }
+
+    const pts  = _gpsVideo1hz(result.points);
+    const nome = videoFileRef.name.replace(/\.[^.]+$/, '');
+    const gpxText = buildGPXFromPoints(pts, nome);
+    parseGPX(gpxText, nome + ' (GPS do vídeo)');  // carrega a rota no mapa
+    linkGpxToVideo();                             // vincula: conferência pronta
+    showToast(`GPS do vídeo: ${pts.length} pontos` +
+              (result.device ? ` — ${result.device}` : '') +
+              ' — dê play para conferir', 'success');
+  } catch (err) {
+    console.error('[useVideoGps]', err);
+    showToast('Erro ao ler o vídeo: ' + err.message, 'error');
+  } finally {
+    if (btn)  { btn.disabled = false; btn.textContent = '📡 Usar GPS do próprio vídeo (GoPro)'; }
+    if (prog) prog.style.display = 'none';
+  }
+}
+
+// 1 ponto por segundo (mesmo padrão dos GPX do fluxo da equipe)
+function _gpsVideo1hz(points) {
+  const out = [];
+  let ultimo = null;
+  for (const p of points) {
+    const seg = p.ts ? String(p.ts).replace(/(\d{2}:\d{2}:\d{2})(\.\d+)?/, '$1') : null;
+    if (seg === null) { out.push(p); continue; }
+    if (seg !== ultimo) {
+      const q = Object.assign({}, p);
+      q.ts = seg.endsWith('Z') ? seg : seg + 'Z';
+      out.push(q);
+      ultimo = seg;
+    }
+  }
+  return out;
+}
