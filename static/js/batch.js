@@ -157,6 +157,42 @@
     if (info) info.textContent = `Selecionado: ${f.name} (${(f.size / 1048576).toFixed(0)} MB)`;
   }
 
+  // ── ZIP no navegador: extrai 1 vídeo por vez e converte com gpmf.js ──
+  async function _converterZipNoNavegador() {
+    if (typeof JSZip === 'undefined' || typeof window.batchBrowserRunLista !== 'function') {
+      alert('JSZip / batch-browser.js não carregados.'); return;
+    }
+    const lbl = document.getElementById('batchProgLbl');
+    if (lbl) lbl.textContent = 'Lendo o índice do .zip...';
+    let zip;
+    try {
+      zip = await JSZip.loadAsync(_zipFile);
+    } catch (e) {
+      if (lbl) lbl.textContent = '';
+      alert('Não consegui abrir o .zip: ' + e.message); return;
+    }
+    const lista = [];
+    zip.forEach((rel, entry) => {
+      if (entry.dir) return;
+      if (!/\.(mp4|mov)$/i.test(rel)) return;
+      if (/(^|\/)__MACOSX\//.test(rel)) return;
+      lista.push({
+        rel,
+        getFile: async () => {
+          const blob = await entry.async('blob');
+          const nome = rel.split('/').pop();
+          return new File([blob], nome, { type: 'video/mp4' });
+        },
+      });
+    });
+    if (!lista.length) {
+      if (lbl) lbl.textContent = '';
+      alert('Nenhum vídeo (.mp4/.mov) dentro do .zip.'); return;
+    }
+    lista.sort((a, b) => a.rel.localeCompare(b.rel));
+    return window.batchBrowserRunLista(lista);
+  }
+
   // ── CONVERTER (roteia pelo modo) ─────────────────────────────────────
   async function batchStart() {
     if (_rodando) return;
@@ -184,14 +220,11 @@
         },
       };
     } else if (_modo === 'zip') {
+      // ZIP processado 100% no NAVEGADOR: nada é enviado ao servidor.
+      // (o upload de centenas de MB pro Railway caía/estourava timeout —
+      //  era o motivo do "gerar GPX via zip" não funcionar)
       if (!_zipFile) { alert('Arraste um arquivo .zip primeiro.'); return; }
-      const fd = new FormData();
-      fd.append('arquivo', _zipFile);
-      fd.append('um_hz', um1hz ? 'true' : 'false');
-      req = {
-        url: '/api/gopro/converter-zip',
-        opts: { method: 'POST', headers: { 'Authorization': 'Bearer ' + apiToken() }, body: fd },
-      };
+      return _converterZipNoNavegador();
     } else { // drive
       const link = document.getElementById('batchDrive')?.value.trim();
       if (!link) { alert('Cole o link do Drive.'); return; }

@@ -465,6 +465,53 @@ class DriveIn(BaseModel):
     um_hz: bool = True
 
 
+_PAT_PASTA_DRIVE = re.compile(r"/folders/([A-Za-z0-9_-]+)")
+
+
+def _listar_pasta_drive(folder_id):
+    """
+    Lista os arquivos de uma PASTA PÚBLICA do Drive via a visualização
+    embutida (embeddedfolderview) — não precisa de API key. Retorna
+    [(file_id, nome), ...]. A pasta precisa estar como 'qualquer pessoa
+    com o link'; pastas corporativas restritas voltam vazias.
+    """
+    url = f"https://drive.google.com/embeddedfolderview?id={folder_id}#list"
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 GPX-IMTRAFF"})
+    with urllib.request.urlopen(req, timeout=60) as resp:
+        html = resp.read().decode("utf-8", errors="ignore")
+    # Cada item: <div class="flip-entry" id="entry-<ID>" ...> ... <div class="flip-entry-title">NOME</div>
+    achados = []
+    for m in re.finditer(
+            r'id="entry-([A-Za-z0-9_-]+)".*?flip-entry-title">([^<]+)<',
+            html, re.S):
+        achados.append((m.group(1), m.group(2).strip()))
+    return achados
+
+
+def _baixar_arquivo_drive(file_id, destino):
+    """
+    Baixa um arquivo público do Drive lidando com a tela de confirmação de
+    vírus dos arquivos grandes (usa o endpoint usercontent com confirm=t).
+    Retorna True se salvou algo que não é HTML.
+    """
+    urls = [
+        f"https://drive.usercontent.google.com/download?id={file_id}&export=download&confirm=t",
+        f"https://drive.google.com/uc?export=download&id={file_id}&confirm=t",
+    ]
+    for url in urls:
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 GPX-IMTRAFF"})
+            with urllib.request.urlopen(req, timeout=600) as resp, open(destino, "wb") as fh:
+                shutil.copyfileobj(resp, fh)
+            with open(destino, "rb") as fh:
+                inicio = fh.read(512)
+            if b"<html" not in inicio.lower():
+                return True
+        except Exception:
+            continue
+    return False
+
+
 def _url_download_direto(link):
     """
     Converte um link de compartilhamento em URL de download direto.
@@ -492,14 +539,71 @@ def _url_download_direto(link):
 @router.post("/converter-drive")
 def converter_drive(dados: DriveIn, usuario: models.Usuario = Depends(get_usuario_atual)):
     """
-    Baixa um ARQUIVO ZIP público do Google Drive (link de arquivo único),
-    extrai e converte. Não funciona para links de PASTA do Drive (limitação
-    do Google) nem para arquivos que disparam a tela de aviso de vírus.
+    Converte a partir de um link do Google Drive:
+      • Link de PASTA pública  -> lista os vídeos, baixa um a um e converte;
+      • Link de ARQUIVO .zip   -> baixa, extrai e converte (fluxo antigo).
+    A pasta/arquivo precisa estar como 'qualquer pessoa com o link'.
+    Atenção: os vídeos passam pelo servidor — pastas muito grandes podem
+    estourar o tempo/espaço do Railway; nesses casos, prefira o modo
+    Navegador ou Arrastar ZIP (processam no seu PC, sem upload).
     """
     exif = _exiftool_bin()
     if not exif:
         raise HTTPException(503, "exiftool não encontrado no servidor.")
 
+    # ── PASTA do Drive ────────────────────────────────────────────────
+    m_pasta = _PAT_PASTA_DRIVE.search(dados.link)
+    if m_pasta and "google" in dados.link:
+        try:
+            itens = _listar_pasta_drive(m_pasta.group(1))
+        except Exception as e:
+            raise HTTPException(502, f"Não consegui listar a pasta do Drive: {e}")
+        videos = [(fid, nome) for fid, nome in itens
+                  if nome.lower().endswith(EXTENSOES)]
+        if not videos:
+            raise HTTPException(
+                404,
+                "Nenhum vídeo (.mp4/.mov) visível nessa pasta. Se a pasta não for "
+                "PÚBLICA ('qualquer pessoa com o link'), o servidor não enxerga os "
+                "arquivos — nesse caso sincronize a pasta pelo Drive p/ desktop e "
+                "use o modo Navegador, ou baixe como .zip e use Arrastar ZIP."
+            )
+        tmp_dir = tempfile.mkdtemp(prefix="gopro_drivefolder_")
+        try:
+            baixados, falhas = 0, []
+            for fid, nome in videos:
+                destino = os.path.join(tmp_dir, os.path.basename(nome))
+                if _baixar_arquivo_drive(fid, destino):
+                    baixados += 1
+                else:
+                    falhas.append(nome)
+                    try:
+                        os.remove(destino)
+                    except OSError:
+                        pass
+            if not baixados:
+                raise HTTPException(
+                    422,
+                    "Não consegui baixar nenhum vídeo da pasta (arquivos não "
+                    "públicos ou bloqueados pelo Drive). Baixe como .zip e use "
+                    "a opção Arrastar ZIP."
+                )
+            buf, ok, vazios = _converter_pasta_para_zip(exif, tmp_dir, True, dados.um_hz)
+            if buf is None or ok == 0:
+                raise HTTPException(422, "Baixei os vídeos, mas nenhum continha GPS.")
+            conteudo = buf.getvalue()
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+        headers = {
+            "Content-Disposition": 'attachment; filename="gpx_gopro.zip"',
+            "X-Convertidos": str(ok),
+            "X-Sem-GPS": str(vazios),
+            "X-Falhas-Download": str(len(falhas)),
+        }
+        return StreamingResponse(io.BytesIO(conteudo),
+                                 media_type="application/zip", headers=headers)
+
+    # ── ARQUIVO .zip (fluxo antigo) ───────────────────────────────────
     url, tipo = _url_download_direto(dados.link)
     if not url:
         raise HTTPException(

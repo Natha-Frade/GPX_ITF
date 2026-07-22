@@ -59,7 +59,48 @@ onMounted(async () => {
   window.addEventListener('dragover', onWindowDragOver)
   window.addEventListener('drop', onWindowDrop)
   spOk.value = (await sharePointDisponivel()).ok
+  // Handoff: cortes enviados pela aba "Vídeo + GPX" do app principal
+  // (gravados em IndexedDB pelo handoff.js). Lê, registra e limpa.
+  if (new URLSearchParams(location.search).has('handoff')) {
+    try {
+      const itens = await lerHandoff()
+      if (itens.length) {
+        status.value = `recebendo ${itens.length} corte(s) da aba Vídeo + GPX…`
+        const files = itens.map(
+          (it) => new File([it.blob], it.nome, { type: it.tipo || 'video/mp4' })
+        )
+        await addFiles(files)
+      }
+    } catch (e) {
+      error.value = 'handoff: ' + e.message
+    }
+  }
 })
+
+// Mesma base do handoff.js do app principal (mesma origem = mesmo IDB)
+function lerHandoff() {
+  return new Promise((resolve, reject) => {
+    const rq = indexedDB.open('gpxitf_handoff', 1)
+    rq.onupgradeneeded = () => {
+      if (!rq.result.objectStoreNames.contains('files'))
+        rq.result.createObjectStore('files', { keyPath: 'id', autoIncrement: true })
+    }
+    rq.onerror = () => reject(rq.error)
+    rq.onsuccess = () => {
+      const db = rq.result
+      const tx = db.transaction('files', 'readwrite')
+      const st = tx.objectStore('files')
+      const all = st.getAll()
+      all.onsuccess = () => {
+        const itens = all.result || []
+        st.clear()
+        tx.oncomplete = () => { db.close(); resolve(itens) }
+        tx.onerror = () => { db.close(); reject(tx.error) }
+      }
+      all.onerror = () => { db.close(); reject(all.error) }
+    }
+  })
+}
 onBeforeUnmount(() => {
   window.removeEventListener('dragover', onWindowDragOver)
   window.removeEventListener('drop', onWindowDrop)

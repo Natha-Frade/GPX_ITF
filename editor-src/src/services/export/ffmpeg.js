@@ -15,9 +15,12 @@ import { FFmpeg } from '@ffmpeg/ffmpeg'
 import { toBlobURL } from '@ffmpeg/util'
 import { probeFile } from '../probe'
 
-// dois CDNs pro core (~31MB, fica em cache): redes de empresa às vezes
-// bloqueiam um deles — mesmo esquema já usado no app principal
+// Fontes do core (~31MB, fica em cache), em ordem:
+//  1) LOCAL — /vendor/ffmpeg hospedado pelo próprio app (ver Dockerfile);
+//     funciona mesmo com a rede da empresa bloqueando CDNs.
+//  2/3) CDNs públicos como fallback (dev local sem o vendor).
 const CORES = [
+  '/vendor/ffmpeg',
   'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd',
   'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd',
 ]

@@ -11,15 +11,15 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 
-  <!-- Leaflet -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!-- Leaflet (hospedado localmente — redes corporativas bloqueiam unpkg) -->
+  <link rel="stylesheet" href="/vendor/leaflet/leaflet.css"/>
+  <script src="/vendor/leaflet/leaflet.js"></script>
 
-  <!-- JSZip (para extrair .kmz) -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <!-- JSZip (para extrair .kmz) — local, cdnjs costuma ser bloqueado -->
+  <script src="/vendor/jszip/jszip.min.js"></script>
 
   <!-- App Styles -->
-  <link rel="stylesheet" href="css/styles.css">
+  <link rel="stylesheet" href="css/styles.css?v=20250722a">
 </head>
 <body>
 
@@ -291,6 +291,13 @@
                 style="width:100%;margin-top:8px;display:none;">
           Baixar todos os GPX
         </button>
+        <button id="sendCutsMergeBtn" class="btn btn-secondary" onclick="sendCutsToMerge()"
+                style="width:100%;margin-top:6px;display:none;">
+          📤 Enviar cortes para UNIR
+        </button>
+        <div class="hint-text" id="sendCutsHint" style="margin-top:6px;display:none;">
+          Manda os GPX dos cortes direto pra aba UNIR (até 4 slots), sem precisar baixar antes.
+        </div>
       </div>
 
       <div class="empty-state" id="emptyState">
@@ -459,14 +466,21 @@
         <div id="ptKmzList" class="pt-gpx-list"></div>
       </div>
 
-      <!-- Botão modo adicionar pino -->
+      <!-- Botão modo adicionar marcação (ponto único ou trecho contínuo) -->
       <div class="section">
-        <div class="section-title">Adicionar Marcos </div>
+        <div class="section-title">Adicionar Marcações</div>
+        <div class="batch-modes" style="margin-bottom:8px;">
+          <button class="batch-mode mark-mode-btn active" data-mode="ponto" onclick="setMarkMode('ponto')">📍 Ponto</button>
+          <button class="batch-mode mark-mode-btn" data-mode="trecho" onclick="setMarkMode('trecho')">📏 Trecho contínuo</button>
+        </div>
         <button class="btn btn-primary" id="ptAddModeBtn" onclick="toggleAddPointMode()" style="width:100%;">
-          Adicionar Marcos
+          📍 Adicionar Marcação
         </button>
         <div class="hint-text" style="margin-top:8px;">
-          Ative e clique no mapa para colocar pins com categoria e rótulo.
+          <strong>Ponto:</strong> um clique = um pino (com km da via, se houver KMZ).
+          <strong>Trecho:</strong> clique no início e no fim — o trecho segue a linha do
+          KMZ/GPX e devolve km inicial → final (ex.: 230+515 → 245+980).
+          Sem KMZ, faz linha reta e exporta só as coordenadas.
         </div>
       </div>
 
@@ -645,10 +659,19 @@
         <button class="btn btn-secondary" onclick="exportVideoCutsCompleto()" style="width:100%;margin-top:6px;">
           Exportar GPX + MP4 de tudo
         </button>
+        <div style="display:flex;gap:6px;margin-top:10px;">
+          <button class="btn btn-secondary" onclick="sendVideoCutsToMerge()" style="flex:1;">
+            📤 GPX → UNIR
+          </button>
+          <button class="btn btn-secondary" id="vidSendEditorBtn" onclick="sendVideoCutsToEditor()" style="flex:1;">
+            🎞 Vídeo → EDITOR
+          </button>
+        </div>
         <div class="hint-text" style="margin-top:6px;">
-          O corte de vídeo roda no seu navegador, sem re-encode (rápido e sem perda).
-          O ponto de corte alinha ao keyframe (~1s de folga). Primeira vez baixa o motor (~31 MB).
-          Para juntar vídeos e montar sequências, use a aba <b>🎞 EDITOR</b>.
+          O corte roda no seu navegador, sem re-encode (alinha ao keyframe, ~1s de folga).
+          Vários cortes saem num único <b>.zip</b>.
+          <b>GPX → UNIR</b> manda os GPX dos cortes direto pra aba UNIR (vincular com outros cortes);
+          <b>Vídeo → EDITOR</b> corta e abre os trechos já carregados no editor.
         </div>
         <div class="vid-progress-bar" style="margin-top:6px;"><div id="vidExportFill" class="vid-progress-fill" style="width:0%;"></div></div>
         <div id="vidExportStatus" style="font-size:0.65rem;color:var(--muted);margin-top:4px;"></div>
@@ -712,15 +735,23 @@
             <input type="file" id="batchZipInput" accept=".zip" style="display:none">
           </div>
           <div id="batchZipInfo" style="font-size:0.7rem;color:var(--muted);margin-top:6px;"></div>
+          <div class="batch-status ok" style="font-size:0.68rem;margin-top:6px;">
+            O .zip é extraído e convertido <b>no seu navegador</b> — nada é enviado ao servidor
+            (funciona com zips grandes, sem timeout). Sai um .zip com os .gpx, preservando subpastas.
+          </div>
         </div>
 
         <!-- MODO DRIVE -->
         <div class="batch-pane" id="pane-drive" style="display:none;">
-          <label style="font-size:0.7rem;color:var(--muted);">Link de arquivo .zip público (Drive ou SharePoint):</label>
-          <input type="text" id="batchDrive" placeholder="Cole o link do .zip (Drive ou SharePoint)"
+          <label style="font-size:0.7rem;color:var(--muted);">Link de PASTA do Drive ou de arquivo .zip (públicos):</label>
+          <input type="text" id="batchDrive" placeholder="https://drive.google.com/drive/folders/... ou link do .zip"
                  style="width:100%;margin:4px 0 8px;">
           <div class="batch-status warn" style="font-size:0.68rem;">
-            Funciona só para <b>arquivo .zip único e público</b> ("qualquer pessoa com o link"). Links de <b>pasta</b> ou que exigem login corporativo não funcionam. Arquivos grandes podem falhar — nesse caso baixe e use "Arrastar ZIP".
+            Aceita <b>pasta do Drive</b> (baixa os vídeos e converte no servidor) ou
+            <b>arquivo .zip único</b>. Precisa estar <b>público</b> ("qualquer pessoa com o link") —
+            pastas corporativas que exigem login não funcionam. Os vídeos passam pelo servidor:
+            pastas muito grandes podem estourar o tempo do Railway — nesse caso use
+            <b>Navegador</b> (pasta sincronizada) ou <b>Arrastar ZIP</b>, que rodam no seu PC.
           </div>
         </div>
 
@@ -790,6 +821,32 @@
 </div>
 
 <!-- ══════════════════════════════════════════════════════════════════
+     MODAL — Novo Trecho (marcação contínua)
+════════════════════════════════════════════════════════════════════ -->
+<div class="pin-modal-overlay" id="segModal" style="display:none;">
+  <div class="pin-modal">
+    <div class="pin-modal-header">
+      <span>📏 Novo Trecho</span>
+      <button onclick="closeSegModal()" class="pin-modal-close">✕</button>
+    </div>
+    <div class="pin-modal-body">
+      <div id="segKmInfo" style="font-family:'JetBrains Mono',monospace;font-size:0.78rem;
+           color:var(--accent);margin-bottom:12px;"></div>
+      <div class="input-label" style="margin-bottom:6px;">RÓTULO</div>
+      <input type="text" id="segLabel" placeholder="Ex: Obra na pista, Trecho sem sinalização..."
+        style="width:100%;margin-bottom:14px;"
+        onkeydown="if(event.key==='Enter') confirmSegModal()">
+      <div class="input-label" style="margin-bottom:8px;">CATEGORIA</div>
+      <div class="pin-cat-row" id="segCatRow"></div>
+    </div>
+    <div class="pin-modal-footer">
+      <button class="btn btn-secondary" onclick="closeSegModal()">Cancelar</button>
+      <button class="btn btn-primary"   onclick="confirmSegModal()">✅ Salvar Trecho</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════
      MODAL — Street View embutido
 ════════════════════════════════════════════════════════════════════ -->
 <div class="sv-modal-overlay" id="svModal" onclick="if(event.target===this)closeStreetViewModal()">
@@ -807,21 +864,23 @@
 <!-- ══════════════════════════════════════════════════════════════════
      SCRIPTS  (order matters: map → cut → merge → points)
 ════════════════════════════════════════════════════════════════════ -->
-<script src="js/api.js"></script>
-<script src="js/config.js"></script>
-<script src="js/streetview.js"></script>
-<script src="js/map.js"></script>
-<script src="js/kmcalc.js"></script>
-<script src="js/cut.js"></script>
-<script src="js/merge.js"></script>
-<script src="js/kmz.js"></script>
-<script src="js/points.js"></script>
-<script src="js/search.js"></script>
-<script src="js/video.js"></script>
-<script src="js/gpmf.js"></script>
-<script src="js/batch-browser.js"></script>
-<script src="js/batch.js"></script>
-<script src="js/video-export.js"></script>
+<script src="js/api.js?v=20250722a"></script>
+<script src="js/config.js?v=20250722a"></script>
+<script src="js/streetview.js?v=20250722a"></script>
+<script src="js/map.js?v=20250722a"></script>
+<script src="js/kmcalc.js?v=20250722a"></script>
+<script src="js/cut.js?v=20250722a"></script>
+<script src="js/merge.js?v=20250722a"></script>
+<script src="js/kmz.js?v=20250722a"></script>
+<script src="js/handoff.js?v=20250722a"></script>
+<script src="js/segments.js?v=20250722a"></script>
+<script src="js/points.js?v=20250722a"></script>
+<script src="js/search.js?v=20250722a"></script>
+<script src="js/video.js?v=20250722a"></script>
+<script src="js/gpmf.js?v=20250722a"></script>
+<script src="js/batch-browser.js?v=20250722a"></script>
+<script src="js/batch.js?v=20250722a"></script>
+<script src="js/video-export.js?v=20250722a"></script>
 <!-- ══════════════════════════════════════════════════════════════════
      TELA DE LOGIN
 ════════════════════════════════════════════════════════════════════ -->

@@ -77,6 +77,7 @@
   .chip.completo{background:var(--placa-verde)}
   .chip.parcial{background:var(--faixa-amarela);color:var(--asfalto)}
   .chip.insuficiente{background:var(--alerta)}
+  .chip.neutro{background:#9aa0a6}
   .barra{height:7px;border-radius:4px;background:var(--linha);margin-top:5px;
     overflow:hidden;min-width:90px}
   .barra i{display:block;height:100%;background:var(--placa-verde)}
@@ -101,24 +102,63 @@
 <main>
 
   <div class="etapa"><span class="km">km 1</span>
-    <h2>Referências</h2><p>KMZ dos dispositivos e planilha de controle — carregue uma vez, vale para todos os lotes.</p>
+    <h2>Referências</h2><p>KMZ dos marcos quilométricos e planilha de filmagem — carregue uma vez, vale para todos os lotes.</p>
   </div>
   <div class="grade">
     <div class="card">
-      <h3>KMZ de dispositivos</h3>
+      <h3>KMZ dos marcos quilométricos</h3>
       <div class="estado" id="estKmz">Verificando…</div>
       <label class="botao secundario">Enviar KMZ
         <input type="file" id="inKmz" accept=".kmz,.kml"></label>
     </div>
     <div class="card">
-      <h3>Planilha de controle (SharePoint/Excel)</h3>
+      <h3>Planilha de filmagem (Excel)</h3>
       <div class="estado" id="estPlan">Verificando…</div>
       <label class="botao secundario">Enviar planilha
         <input type="file" id="inPlan" accept=".xlsx,.xlsm"></label>
+      <p style="font-size:12px;color:#6b6e72;margin:8px 0 0;">
+        Lidas as colunas <b>B</b> (rodovia), <b>C</b> (pista/faixa),
+        <b>D</b> (km inicial) e <b>E</b> (km final).</p>
     </div>
   </div>
 
   <div class="etapa"><span class="km">km 2</span>
+    <h2>Consulta — cortes por km</h2><p>Digite um km (ou intervalo) e veja os cortes da planilha que cobrem — ou solte um GPX que eu estimo o km sozinho.</p>
+  </div>
+  <div class="grade">
+    <div class="card">
+      <h3>Por km digitado</h3>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+        <input type="text" id="qIni" placeholder="Km inicial (ex.: 340+000)"
+          style="flex:1;min-width:130px;padding:8px 10px;border:1.5px solid var(--linha);border-radius:8px;font-family:var(--mono);font-size:13px;">
+        <input type="text" id="qFim" placeholder="Km final (opcional)"
+          style="flex:1;min-width:130px;padding:8px 10px;border:1.5px solid var(--linha);border-radius:8px;font-family:var(--mono);font-size:13px;">
+        <select id="qTrecho" style="padding:8px 10px;border:1.5px solid var(--linha);border-radius:8px;font-size:13px;">
+          <option value="">Todos os trechos</option>
+        </select>
+      </div>
+      <button class="botao" id="btConsultaKm">Buscar vídeos</button>
+      <div class="estado" id="estConsulta" style="margin-top:8px;"></div>
+    </div>
+    <div class="card">
+      <h3>Por GPX (estima o km pela trilha)</h3>
+      <div class="estado">Usa os marcos do KMZ para achar o km da trilha — carregue as referências antes.</div>
+      <label class="botao secundario">Enviar GPX / ZIP
+        <input type="file" id="inConsultaGpx" accept=".gpx,.zip" multiple></label>
+      <span class="rodando" id="rodandoGpx" style="margin-left:10px;">Estimando km…</span>
+    </div>
+  </div>
+  <section id="secConsulta" style="display:none;margin-top:12px;">
+    <div id="consultaTitulo" style="font-size:13px;color:#6b6e72;margin-bottom:8px;"></div>
+    <table>
+      <thead><tr>
+        <th>Corte</th><th>Trecho</th><th>Pista/faixa</th><th>Km inicial</th><th>Km final</th>
+      </tr></thead>
+      <tbody id="consultaLinhas"></tbody>
+    </table>
+  </section>
+
+  <div class="etapa"><span class="km">km 3</span>
     <h2>Lote do dia</h2><p>Arraste os GPX brutos ou o ZIP do cartão. Pastas com "interno"/"externo" no nome são reconhecidas.</p>
   </div>
   <div class="zona" id="zona">
@@ -129,24 +169,25 @@
   </div>
   <div class="acao">
     <button class="botao" id="btProcessar" disabled>Validar lote</button>
-    <span class="rodando" id="rodando">Processando… identificando dispositivos por coordenada.</span>
+    <span class="rodando" id="rodando">Processando… projetando as trilhas nos marcos de km.</span>
   </div>
 
-  <div class="etapa"><span class="km">km 3</span>
-    <h2>Relatório</h2><p>O que foi filmado, o que ficou incompleto e o nome certo de cada arquivo.</p>
+  <div class="etapa"><span class="km">km 4</span>
+    <h2>Relatório</h2><p>Quanto de cada corte foi filmado, por câmera, e onde ficaram os buracos.</p>
   </div>
   <section id="secRelatorio">
     <div class="resumo" id="resumo"></div>
     <table>
       <thead><tr>
-        <th>Dispositivo (KMZ)</th><th>Corte (planilha)</th><th>Situação</th>
-        <th>Cobertura</th><th>Origem</th><th>Arquivos gerados</th>
+        <th>Corte</th><th>Trecho</th><th>Km</th><th>Status</th>
+        <th>Cobertura</th><th>Vídeo(s) interno</th><th>Vídeo(s) externo</th>
+        <th>Observação</th>
       </tr></thead>
       <tbody id="linhas"></tbody>
     </table>
     <div id="pendencias"></div>
     <div class="acao">
-      <a class="botao" id="btBaixar" href="#">Baixar ZIP renomeado</a>
+      <a class="botao" id="btBaixar" href="#">Baixar planilha de validação</a>
     </div>
   </section>
 
@@ -160,7 +201,8 @@ async function statusRef(){
     const r = await (await fetch('/validacao/referencia/status')).json();
     const k = r.kmz, p = r.planilha;
     $('#estKmz').textContent = k.carregado
-      ? `${k.arquivo} — ${k.dispositivos} dispositivos` : 'Nenhum KMZ carregado';
+      ? `${k.arquivo} — ${k.marcos} marcos (${(k.rodovias||[]).join(', ')})`
+      : 'Nenhum KMZ carregado';
     $('#estKmz').className = 'estado' + (k.carregado ? ' ok' : '');
     $('#estPlan').textContent = p.carregado
       ? `${p.arquivo} — ${p.cortes} cortes` : 'Nenhuma planilha carregada';
@@ -180,6 +222,7 @@ async function subirRef(input, rota, alvo){
     $(alvo).textContent = e.detail; $(alvo).className = 'estado erro'; return;
   }
   statusRef();
+  if (typeof carregarTrechos === 'function') carregarTrechos();
 }
 $('#inKmz').onchange = () => subirRef($('#inKmz'), '/validacao/referencia/kmz', '#estKmz');
 $('#inPlan').onchange = () => subirRef($('#inPlan'), '/validacao/referencia/planilha', '#estPlan');
@@ -213,37 +256,129 @@ $('#btProcessar').onclick = async () => {
   desenhar(await resp.json());
 };
 
+const CHIP = {
+  'FECHADO':'completo', 'PARCIAL':'parcial',
+  'NÃO FILMADO':'insuficiente', 'SEM REFERÊNCIA':'neutro'
+};
+
 function desenhar(rel){
-  const g = rel.grupos, comp = g.filter(x=>x.situacao==='COMPLETO').length;
+  const r = rel.resumo;
   $('#resumo').innerHTML = `
-    <div class="num"><b>${g.length}</b><span>dispositivos no lote</span></div>
-    <div class="num"><b>${comp}</b><span>completos</span></div>
-    <div class="num"><b>${g.length-comp}</b><span>para revisar</span></div>
-    <div class="num"><b>${rel.nao_identificados.length}</b><span>não identificados</span></div>
-    <div class="num"><b>${rel.duplicatas.length}</b><span>duplicatas</span></div>`;
-  $('#linhas').innerHTML = g.map(x => `
+    <div class="num"><b>${r.cortes}</b><span>cortes na planilha</span></div>
+    <div class="num"><b>${r.fechados}</b><span>fechados</span></div>
+    <div class="num"><b>${r.parciais}</b><span>parciais</span></div>
+    <div class="num"><b>${r.nao_filmados}</b><span>não filmados</span></div>
+    <div class="num"><b>${r.gpx_lidos}</b><span>GPX aproveitados</span></div>`;
+  $('#linhas').innerHTML = rel.linhas.map(x => {
+    const pct = Math.round(x.cobertura * 1000) / 10;
+    const cam = c => (x.videos && x.videos[c] || []).join('<br>') || '—';
+    return `
     <tr>
-      <td>${x.dispositivo}<br><span class="mono">km ${x.km}</span></td>
-      <td>${x.corte}</td>
-      <td><span class="chip ${x.situacao.toLowerCase()}">${x.situacao}</span></td>
-      <td>${x.cobertura_uniao_pct}%<div class="barra"><i style="width:${x.cobertura_uniao_pct}%"></i></div></td>
-      <td>${(x.origens||[]).join(' + ')}</td>
-      <td class="mono">${x.arquivos_gerados.join('<br>')}</td>
-    </tr>`).join('');
+      <td><b>${x.nome}</b></td>
+      <td>${x.rodovia}${x.pista ? '<br><span style="color:#6b6e72;">'+x.pista+'</span>' : ''}</td>
+      <td class="mono">${x.km_ini_str} →<br>${x.km_fim_str}
+        ${x.extensao_km != null ? '<br><span style="color:#6b6e72;">'+x.extensao_km+' km</span>' : ''}</td>
+      <td><span class="chip ${CHIP[x.status]||''}">${x.status}</span></td>
+      <td>${pct}%<div class="barra"><i style="width:${pct}%"></i></div></td>
+      <td class="mono">${cam('INTERNO')}</td>
+      <td class="mono">${cam('EXTERNO')}</td>
+      <td style="font-size:12px;">${x.observacao || ''}</td>
+    </tr>`;
+  }).join('');
+
   let pend = '';
-  g.forEach(x => (x.avisos||[]).forEach(a =>
-    pend += `<div class="aviso"><b>${x.dispositivo}:</b> ${a}</div>`));
-  rel.nao_identificados.forEach(n =>
-    pend += `<div class="problema"><b>${n.arquivo}</b> não bate com nenhum dispositivo do KMZ
-      (mais próximo: ${n.mais_proximo || '—'} a ${n.dist_min_m ?? '?'} m). Confira se é trecho contínuo ou refilmagem fora do dispositivo.</div>`);
-  rel.duplicatas.forEach(d =>
-    pend += `<div class="aviso"><b>${d.arquivo}</b> é cópia exata de <b>${d.igual_a}</b> — ignorado no ZIP.</div>`);
+  rel.pendencias.forEach(p =>
+    pend += `<div class="aviso"><b>${p.corte}</b> (${p.rodovia}): sem cobertura de
+      <span class="mono">${p.km_ini}</span> a <span class="mono">${p.km_fim}</span>
+      — ${p.extensao_km} km. ${p.motivo}.</div>`);
+  rel.sobrando.forEach(s =>
+    pend += `<div class="problema"><b>${s.arquivo}</b> (${s.camera}) está em ${s.rodovia}
+      km ${s.km_ini} → ${s.km_fim}, fora de todos os cortes da planilha.</div>`);
+  rel.ignorados.forEach(g =>
+    pend += `<div class="problema"><b>${g.arquivo}</b> não foi aproveitado: ${g.motivo}.</div>`);
   $('#pendencias').innerHTML = pend;
   $('#btBaixar').href = rel.download;
   $('#secRelatorio').style.display = 'block';
   $('#secRelatorio').scrollIntoView({behavior:'smooth'});
 }
 
+/* ── Consulta por km / GPX ─────────────────────────────────────── */
+async function carregarTrechos(){
+  try{
+    const r = await (await fetch('/validacao/trechos')).json();
+    const sel = $('#qTrecho');
+    (r.trechos||[]).forEach(t=>{
+      const o = document.createElement('option'); o.value=t; o.textContent=t;
+      sel.appendChild(o);
+    });
+  }catch(e){}
+}
+
+function desenharConsulta(titulo, videos){
+  $('#consultaTitulo').textContent = titulo;
+  $('#consultaLinhas').innerHTML = videos.length ? videos.map(v=>`
+    <tr>
+      <td><b>${v.video}</b></td>
+      <td>${v.trecho||''}</td>
+      <td>${v.pista||''}</td>
+      <td class="mono">${v.km_ini||''}</td>
+      <td class="mono">${v.km_fim||''}</td>
+    </tr>`).join('')
+    : '<tr><td colspan="5" style="color:#6b6e72;">Nenhum corte cobre esse km na planilha.</td></tr>';
+  $('#secConsulta').style.display = 'block';
+  $('#secConsulta').scrollIntoView({behavior:'smooth', block:'nearest'});
+}
+
+$('#btConsultaKm').onclick = async ()=>{
+  const ini = $('#qIni').value.trim();
+  if(!ini){ $('#estConsulta').textContent='Informe o km inicial (ex.: 340+000).';
+            $('#estConsulta').className='estado erro'; return; }
+  const fim = $('#qFim').value.trim();
+  const tr  = $('#qTrecho').value;
+  $('#estConsulta').textContent='Buscando…'; $('#estConsulta').className='estado';
+  const url = '/validacao/consulta-km?ini='+encodeURIComponent(ini)
+    + (fim ? '&fim='+encodeURIComponent(fim) : '')
+    + (tr  ? '&trecho='+encodeURIComponent(tr) : '');
+  const resp = await fetch(url);
+  if(!resp.ok){
+    const e = await resp.json().catch(()=>({detail:'Falha na consulta'}));
+    $('#estConsulta').textContent = e.detail; $('#estConsulta').className='estado erro'; return;
+  }
+  const r = await resp.json();
+  $('#estConsulta').textContent = r.total+' corte(s) encontrados';
+  $('#estConsulta').className = 'estado ok';
+  const faixa = r.consulta.fim ? `${r.consulta.ini} → ${r.consulta.fim}` : r.consulta.ini;
+  desenharConsulta(`Cortes ligados ao km ${faixa}${tr? ' · '+tr : ''}:`, r.videos);
+};
+['qIni','qFim'].forEach(id => $('#'+id).addEventListener('keydown',
+  e => { if(e.key==='Enter') $('#btConsultaKm').click(); }));
+
+$('#inConsultaGpx').onchange = async ()=>{
+  const fs = [...$('#inConsultaGpx').files]; if(!fs.length) return;
+  $('#rodandoGpx').style.display='inline';
+  const fd = new FormData(); fs.forEach(f=>fd.append('arquivos', f));
+  const resp = await fetch('/validacao/consulta-gpx', {method:'POST', body: fd});
+  $('#rodandoGpx').style.display='none';
+  $('#inConsultaGpx').value = '';
+  if(!resp.ok){
+    const e = await resp.json().catch(()=>({detail:'Falha na consulta'}));
+    alert(e.detail); return;
+  }
+  const r = await resp.json();
+  // junta os resultados de todos os GPX num painel só
+  let titulo = '', videos = [], vistos = new Set();
+  (r.resultados||[]).forEach(x=>{
+    if(x.erro){ titulo += `${x.arquivo}: ${x.erro}  ·  `; return; }
+    titulo += `${x.arquivo}: km ${x.km_ini} → ${x.km_fim}  ·  `;
+    (x.videos||[]).forEach(v=>{
+      const k = v.video+'|'+v.km_ini;
+      if(!vistos.has(k)){ vistos.add(k); videos.push(v); }
+    });
+  });
+  desenharConsulta(titulo || 'Sem resultados', videos);
+};
+
+carregarTrechos();
 statusRef();
 </script>
 </body>

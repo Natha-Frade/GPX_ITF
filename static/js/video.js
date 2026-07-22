@@ -85,6 +85,7 @@ document.addEventListener('DOMContentLoaded', () => {
 //  CARREGAR VÍDEO
 // ──────────────────────────────────────────────────────────────────────
 let videoFileRef = null; // File original — usado pela exportação em MP4
+let videoCodec   = '';   // 'avc1' (H.264) | 'hvc1'/'hev1' (HEVC) | ''
 
 function loadVideo(file) {
   videoFileRef = file;
@@ -93,8 +94,41 @@ function loadVideo(file) {
   document.getElementById('vidFileName').textContent = file.name;
   document.getElementById('vidUploadSection').style.display  = 'none';
   document.getElementById('vidPlayerSection').style.display  = 'block';
-  showToast('Vídeo carregado', 'success');
+
+  // Detecta o codec (rápido, lê só os átomos). Avisa se for HEVC/H.265,
+  // que o Chrome costuma NÃO tocar (preview preto no editor) e que torna
+  // o export bem mais lento (precisa converter p/ H.264 no navegador).
+  if (typeof detectarCodecVideo === 'function') {
+    detectarCodecVideo(file).then(cc => {
+      videoCodec = cc;
+      const nomeEl = document.getElementById('vidFileName');
+      if (!nomeEl) return;
+      const ehHEVC = /^(hvc1|hev1|hev2|dvhe)/.test(cc);
+      let tag = nomeEl.querySelector('.vid-codec-tag');
+      if (!tag) {
+        tag = document.createElement('span');
+        tag.className = 'vid-codec-tag';
+        tag.style.cssText = 'margin-left:8px;font-size:11px;padding:2px 6px;border-radius:4px;';
+        nomeEl.appendChild(tag);
+      }
+      if (ehHEVC) {
+        tag.textContent = 'HEVC/H.265';
+        tag.style.background = '#7a2b2b'; tag.style.color = '#ffd7d7';
+        tag.title = 'Vídeo em HEVC: o preview pode ficar preto e o export é mais lento (converte p/ H.264).';
+        if (typeof showToast === 'function') {
+          showToast('Vídeo em HEVC/H.265: preview pode ficar preto e o export é mais lento.', 'info');
+        }
+      } else if (cc) {
+        tag.textContent = cc === 'avc1' ? 'H.264' : cc.toUpperCase();
+        tag.style.background = '#2b5a2b'; tag.style.color = '#d7ffd7';
+      }
+    });
+  }
+  showToast('Vídeo carregado — lendo GPS embutido...', 'success');
   updateVidUI();
+  // Extração AUTOMÁTICA do GPS embutido (GoPro). Se o vídeo não tiver
+  // trilha (ex.: re-exportado por editor), avisa de leve e segue o jogo.
+  setTimeout(() => useVideoGps({ auto: true }), 300);
 }
 
 function onVideoMetadata() {
@@ -606,10 +640,15 @@ async function exportVideoCutsAsMP4() {
   if (btn) btn.disabled = true;
   try {
     const cuts = [...videoCuts].sort((a, b) => a.startSec - b.startSec);
+    // Só re-encoda se o vídeo for HEVC (precisa virar H.264 p/ abrir no
+    // Windows). Se já é H.264, corta em stream-copy: rápido e sem perda.
+    const ehHEVC = /^(hvc1|hev1|hev2|dvhe)/.test(videoCodec || '');
+    if (ehHEVC && st) st.textContent = 'Vídeo em HEVC — convertendo para H.264 (pode demorar)...';
     const n = await videoExportarCortesMP4(
       videoFileRef, cuts,
       msg => { if (st) st.textContent = msg; },
-      p   => { if (fill) fill.style.width = (p * 100).toFixed(0) + '%'; }
+      p   => { if (fill) fill.style.width = (p * 100).toFixed(0) + '%'; },
+      ehHEVC ? 'reencode' : 'copy'
     );
     if (st) st.textContent = n + ' vídeo(s) exportado(s) — sem re-encode, corte no keyframe.';
     showToast(n + ' MP4(s) baixado(s)', 'success');
@@ -626,6 +665,92 @@ async function exportVideoCutsAsMP4() {
 async function exportVideoCutsCompleto() {
   exportVideoCutsAsGpx();
   await exportVideoCutsAsMP4();
+}
+
+// ── Enviar GPX dos cortes → aba UNIR GPX (sem baixar/recarregar) ─────
+function sendVideoCutsToMerge() {
+  if (!videoLinked || !videoCuts.length) {
+    showToast('Vincule o GPX e defina cortes na timeline', 'error'); return;
+  }
+  if (typeof mergeInjectGpx !== 'function') {
+    showToast('merge.js não carregado', 'error'); return;
+  }
+  const cortes = [...videoCuts].sort((a, b) => a.startSec - b.startSec);
+  const gpxs = [];
+  cortes.forEach((cut, i) => {
+    const ptsInRange = videoGpxPoints.filter(p => {
+      const t = p.epochSec - gpxStartEpoch - videoOffsetSec;
+      return t >= cut.startSec && t <= cut.endSec;
+    });
+    if (ptsInRange.length >= 2) {
+      gpxs.push({
+        nome: (videoFileRef ? videoFileRef.name.replace(/\.[^.]+$/, '') : 'video') + '_corte' + (i + 1) + '.gpx',
+        texto: buildGpxStringFromPts(ptsInRange),
+      });
+    }
+  });
+  if (!gpxs.length) { showToast('Nenhum corte com pontos de GPX suficientes', 'error'); return; }
+
+  // A aba UNIR tem 4 slots (A, B, C, D). Troca de aba ANTES de injetar
+  // para que os elementos dos slots já existam no DOM.
+  const SLOTS = ['A', 'B', 'C', 'D'];
+  switchTab('unir');
+  if (gpxs.length > SLOTS.length) {
+    showToast(`A aba UNIR tem ${SLOTS.length} slots — enviando os ${SLOTS.length} ` +
+      'primeiros cortes. Una, baixe o resultado e envie os demais.', 'info');
+  }
+  gpxs.slice(0, SLOTS.length).forEach((g, i) => mergeInjectGpx(SLOTS[i], g.nome, g.texto));
+  showToast(`GPX de ${Math.min(gpxs.length, SLOTS.length)} corte(s) carregado(s) na aba UNIR`, 'success');
+}
+
+// ── Enviar cortes de VÍDEO → EDITOR (via IndexedDB, sem re-upload) ──
+async function sendVideoCutsToEditor() {
+  if (!videoFileRef) { showToast('Carregue um vídeo primeiro', 'error'); return; }
+  if (!videoCuts.length) { showToast('Defina cortes na timeline', 'error'); return; }
+  if (typeof videoCortarParaBlobs !== 'function' || typeof handoffPut !== 'function') {
+    showToast('video-export.js / handoff.js não carregados', 'error'); return;
+  }
+  const st   = document.getElementById('vidExportStatus');
+  const fill = document.getElementById('vidExportFill');
+  const btn  = document.getElementById('vidSendEditorBtn');
+  if (btn) btn.disabled = true;
+  try {
+    const cuts  = [...videoCuts].sort((a, b) => a.startSec - b.startSec);
+    // Se o vídeo é HEVC/H.265, o Chrome não toca no editor (preview preto)
+    // e nem o download abre — então re-encoda p/ H.264. Se já é H.264,
+    // corta em stream-copy (rápido). Detecção feita ao carregar o vídeo.
+    const ehHEVC = /^(hvc1|hev1|hev2|dvhe)/.test(videoCodec || '');
+    const modo   = ehHEVC ? 'reencode' : 'copy';
+    if (ehHEVC && st) st.textContent = 'Vídeo em HEVC — convertendo para H.264 (pode demorar)...';
+    const blobs = await videoCortarParaBlobs(
+      videoFileRef, cuts,
+      msg => { if (st) st.textContent = msg; },
+      p   => { if (fill) fill.style.width = (p * 100).toFixed(0) + '%'; },
+      modo
+    );
+    if (!blobs.length) { showToast('Nenhum corte gerado', 'error'); return; }
+    if (st) st.textContent = 'Enviando ' + blobs.length + ' corte(s) para o editor...';
+    await handoffPut(blobs);
+    // Abre o editor. Alguns navegadores bloqueiam window.open fora de um
+    // clique direto (aqui já estamos num handler async), então se vier
+    // null, mostramos um link para o usuário abrir manualmente.
+    const win = window.open('/editor/?handoff=1', '_blank');
+    if (!win) {
+      if (st) st.innerHTML = blobs.length + ' corte(s) prontos. ' +
+        '<a href="/editor/?handoff=1" target="_blank" style="color:var(--accent);text-decoration:underline;">' +
+        'Clique aqui para abrir o EDITOR</a> (o navegador bloqueou a aba automática).';
+      showToast('Cortes prontos — clique no link para abrir o editor', 'info');
+    } else {
+      if (st) st.textContent = blobs.length + ' corte(s) enviados — o editor abriu em outra aba.';
+      showToast('Cortes enviados para o EDITOR', 'success');
+    }
+  } catch (e) {
+    if (st) st.textContent = 'Erro: ' + e.message;
+    showToast('Erro ao enviar: ' + e.message, 'error');
+  } finally {
+    if (btn) btn.disabled = false;
+    if (fill) setTimeout(() => { fill.style.width = '0%'; }, 1500);
+  }
 }
 
 // ── Juntar vários vídeos (capítulos GX01/GX02...) em um só ──
@@ -664,8 +789,9 @@ function vidJoinPick() {
 //  Obs.: só funciona com vídeo ORIGINAL da GoPro. Vídeos re-exportados
 //  por editores (CapCut, Premiere...) perdem a trilha de GPS.
 // ──────────────────────────────────────────────────────────────────────
-async function useVideoGps() {
-  if (!videoFileRef) { showToast('Carregue um vídeo primeiro', 'error'); return; }
+async function useVideoGps(opts) {
+  const auto = !!(opts && opts.auto);
+  if (!videoFileRef) { if (!auto) showToast('Carregue um vídeo primeiro', 'error'); return; }
   if (typeof extractGPMF !== 'function' || typeof buildGPXFromPoints !== 'function') {
     showToast('Extrator GPMF não carregado (gpmf.js)', 'error'); return;
   }
@@ -680,8 +806,11 @@ async function useVideoGps() {
     });
 
     if (!result || !result.points || !result.points.length) {
-      showToast('Este vídeo não tem GPS. Vídeos exportados por editores ' +
-                '(CapCut etc.) perdem a trilha — use o arquivo original da GoPro.', 'error');
+      showToast(auto
+        ? 'Vídeo sem GPS embutido — vincule um GPX manualmente (aba CORTAR GPX).'
+        : 'Este vídeo não tem GPS. Vídeos exportados por editores ' +
+          '(CapCut etc.) perdem a trilha — use o arquivo original da GoPro.',
+        auto ? 'info' : 'error');
       return;
     }
 
@@ -695,7 +824,8 @@ async function useVideoGps() {
               ' — dê play para conferir', 'success');
   } catch (err) {
     console.error('[useVideoGps]', err);
-    showToast('Erro ao ler o vídeo: ' + err.message, 'error');
+    showToast((auto ? 'Não consegui ler o GPS do vídeo: ' : 'Erro ao ler o vídeo: ') + err.message,
+      auto ? 'info' : 'error');
   } finally {
     if (btn)  { btn.disabled = false; btn.textContent = '📡 Usar GPS do próprio vídeo (GoPro)'; }
     if (prog) prog.style.display = 'none';

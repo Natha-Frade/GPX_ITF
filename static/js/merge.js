@@ -62,6 +62,23 @@ function parseMergeGPX(text) {
   } catch (e) { return null; }
 }
 
+// ── Injeta um GPX num slot vindo de outra aba (ex.: cortes do vídeo) ──
+function mergeInjectGpx(slot, name, text) {
+  const points = parseMergeGPX(text);
+  if (!points) { showToast(`❌ GPX inválido para o slot ${slot}`, 'error'); return false; }
+  mergeData[slot] = { points, name, raw: text };
+  document.getElementById(`fname-${slot}`).textContent = name.replace('.gpx', '');
+  document.getElementById(`fname-${slot}`).classList.add('ok');
+  document.getElementById(`pts-${slot}`).textContent =
+    `${points.length.toLocaleString('pt-BR')} pontos · ${totalKm(points).toFixed(2)} km`;
+  document.getElementById(`pts-${slot}`).classList.add('ok');
+  document.getElementById(`slot-${slot}`).classList.add('loaded');
+  document.getElementById(`uploadBtn-${slot}`).classList.add('has-file');
+  document.getElementById(`uploadBtn-${slot}`).childNodes[0].textContent = `✅ GPX ${slot} carregado`;
+  drawMergePreview();
+  return true;
+}
+
 function clearSlot(slot) {
   mergeData[slot] = null;
   document.getElementById(`fname-${slot}`).textContent = 'Nenhum arquivo';

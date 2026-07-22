@@ -1,0 +1,29 @@
+{
+  "mcpServers": {
+    "perplexity": {
+      "command": "cmd",
+      "args": ["/c", "npx", "-y", "@perplexity-ai/mcp-server"],
+      "env": {
+        "PERPLEXITY_API_KEY": "${PERPLEXITY_API_KEY}"
+      }
+    },
+    "playwright": {
+      "command": "cmd",
+      "args": ["/c", "npx", "-y", "@playwright/mcp@latest"]
+    },
+    "firecrawl": {
+      "command": "cmd",
+      "args": ["/c", "npx", "-y", "firecrawl-mcp"],
+      "env": {
+        "FIRECRAWL_API_KEY": "${FIRECRAWL_API_KEY}"
+      }
+    },
+    "glyph": {
+      "command": "cmd",
+      "args": ["/c", "npx", "-y", "@glyphpdf/mcp-server"],
+      "env": {
+        "GLYPH_API_KEY": "${GLYPH_API_KEY}"
+      }
+    }
+  }
+}

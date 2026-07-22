@@ -4,4 +4,5 @@ __pycache__/
 *.pyc
 editor-src/node_modules/
 static/editor/
+data_validacao/
 .DS_Store

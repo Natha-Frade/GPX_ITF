@@ -722,6 +722,10 @@ function renderCutsList() {
     list.appendChild(item);
   });
   document.getElementById('downloadAllBtn').style.display = savedCuts.length > 1 ? '' : 'none';
+  const sendBtn = document.getElementById('sendCutsMergeBtn');
+  const sendHint = document.getElementById('sendCutsHint');
+  if (sendBtn)  sendBtn.style.display  = savedCuts.length >= 1 ? '' : 'none';
+  if (sendHint) sendHint.style.display = savedCuts.length >= 1 ? '' : 'none';
 }
 
 function focusCut(id) {
@@ -797,6 +801,26 @@ function downloadAllCuts() {
   if (!savedCuts.length) return;
   savedCuts.forEach(cut => downloadCutGPX(cut.id));
   showToast(savedCuts.length + ' arquivos GPX exportados', 'success');
+}
+
+// ── Enviar os cortes salvos direto para a aba UNIR (sem baixar) ──────
+//  A aba UNIR tem 4 slots (A, B, C, D). Carrega os cortes salvos nesses
+//  slots e troca de aba. Se houver mais de 4 cortes, envia os 4
+//  primeiros (una, baixe, repita para os demais).
+function sendCutsToMerge() {
+  if (!savedCuts.length) { showToast('Nenhum corte salvo para enviar', 'error'); return; }
+  if (typeof mergeInjectGpx !== 'function') { showToast('merge.js não carregado', 'error'); return; }
+  const SLOTS = ['A', 'B', 'C', 'D'];
+  switchTab('unir');
+  if (savedCuts.length > SLOTS.length) {
+    showToast(`A aba UNIR tem ${SLOTS.length} slots — enviando os ${SLOTS.length} ` +
+      'primeiros cortes. Una, baixe o resultado e envie os demais.', 'info');
+  }
+  savedCuts.slice(0, SLOTS.length).forEach((cut, i) => {
+    const nome = 'corte_' + (cut.id + 1) + '.gpx';
+    mergeInjectGpx(SLOTS[i], nome, buildGpxString(cut.pts));
+  });
+  showToast(`${Math.min(savedCuts.length, SLOTS.length)} corte(s) enviado(s) para a aba UNIR`, 'success');
 }
 
 // ──────────────────────────────────────────────────────────────────────

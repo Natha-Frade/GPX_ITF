@@ -99,9 +99,18 @@
   }
 
   // ── Conversão em lote ────────────────────────────────────────────────
+  // browserStart: pasta selecionada (modo Navegador).
+  // browserRunLista: recebe lista lazy [{rel, getFile: async () => File}] —
+  //   usada pelo modo "Arrastar ZIP" (extrai 1 vídeo por vez, sem estourar
+  //   a memória com o zip inteiro).
   async function browserStart() {
-    if (_rodando) return;
     if (!_arquivos.length) { alert('Selecione uma pasta primeiro.'); return; }
+    return browserRunLista(_arquivos.map(a => ({ rel: a.rel, getFile: async () => a.file })));
+  }
+
+  async function browserRunLista(lista) {
+    if (_rodando) return;
+    if (!lista || !lista.length) { alert('Nenhum vídeo para converter.'); return; }
     if (typeof extractGPMF !== 'function' || typeof JSZip === 'undefined') {
       alert('gpmf.js ou JSZip não carregados — verifique os <script> do index.html.');
       return;
@@ -119,14 +128,16 @@
     let ok = 0, semGps = 0;
 
     try {
-      for (let i = 0; i < _arquivos.length; i++) {
-        const { file, rel } = _arquivos[i];
-        const base = ((i) / _arquivos.length) * 100;
-        const passo = 100 / _arquivos.length;
+      for (let i = 0; i < lista.length; i++) {
+        const rel = lista[i].rel;
+        if (lbl) lbl.textContent = `[${i + 1}/${lista.length}] ${rel} — abrindo...`;
+        const file = await lista[i].getFile();
+        const base = ((i) / lista.length) * 100;
+        const passo = 100 / lista.length;
 
         const { points, device } = await extractGPMF(file, (pct, msg) => {
           if (fill) fill.style.width = (base + (pct / 100) * passo).toFixed(1) + '%';
-          if (lbl) lbl.textContent = `[${i + 1}/${_arquivos.length}] ${rel} — ${msg}`;
+          if (lbl) lbl.textContent = `[${i + 1}/${lista.length}] ${rel} — ${msg}`;
         });
 
         if (!points.length) { semGps++; continue; }
@@ -181,5 +192,6 @@
 
   window.batchBrowserPick = browserPick;
   window.batchBrowserStart = browserStart;
+  window.batchBrowserRunLista = browserRunLista;
   window.batchBrowserTemVideos = () => _arquivos.length > 0;
 })();

@@ -35,6 +35,19 @@ seed_admin()
 
 app = FastAPI(title="GPX IMTRAFF", docs_url="/api/docs")
 
+# ── Cross-Origin Isolation p/ o ffmpeg.wasm MULTI-THREAD ──────────────
+#  O core multi-thread (bem mais rápido no re-encode) precisa de
+#  SharedArrayBuffer, que só existe quando a página é "cross-origin
+#  isolated". Isso exige os headers COOP + COEP. Usamos COEP
+#  "credentialless" (em vez de "require-corp") para NÃO quebrar os tiles
+#  do mapa (OpenStreetMap) e outros recursos externos sem CORS.
+@app.middleware("http")
+async def _coop_coep(request, call_next):
+    resp = await call_next(request)
+    resp.headers["Cross-Origin-Opener-Policy"] = "same-origin"
+    resp.headers["Cross-Origin-Embedder-Policy"] = "credentialless"
+    return resp
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -56,6 +69,13 @@ if os.path.isdir(os.path.join(STATIC_DIR, "js")):
     app.mount("/js",  StaticFiles(directory=os.path.join(STATIC_DIR, "js")),  name="js")
 if os.path.isdir(os.path.join(STATIC_DIR, "css")):
     app.mount("/css", StaticFiles(directory=os.path.join(STATIC_DIR, "css")), name="css")
+
+# Motor de vídeo (ffmpeg.wasm) hospedado localmente — evita depender de
+# CDN externo (unpkg/jsdelivr), que redes corporativas costumam bloquear.
+import mimetypes
+mimetypes.add_type("application/wasm", ".wasm")
+if os.path.isdir(os.path.join(STATIC_DIR, "vendor")):
+    app.mount("/vendor", StaticFiles(directory=os.path.join(STATIC_DIR, "vendor")), name="vendor")
 
 # Editor de vídeo (build do Vite em static/editor). html=True faz o /editor/
 # servir o index.html do SPA. Precisa vir ANTES do catch-all lá embaixo.

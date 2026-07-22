@@ -10,9 +10,25 @@
 (function () {
   'use strict';
 
-  // Dois CDNs: se o primeiro estiver bloqueado na rede (comum em
-  // empresas), tenta o segundo automaticamente.
+  // Fontes do motor, em ordem de tentativa:
+  //  1) LOCAL — hospedado no próprio app (static/vendor/ffmpeg, ver
+  //     Dockerfile) → funciona mesmo com a rede da empresa bloqueando CDN;
+  //  2/3) CDNs públicos como fallback (uso local sem o vendor baixado).
   const CDNS = [
+    {
+      ffmpeg: '/vendor/ffmpeg/ffmpeg.js',
+      util:   '/vendor/ffmpeg/util.js',
+      core:   '/vendor/ffmpeg-mt',   // core MULTI-THREAD (bem mais rápido)
+      worker: '/vendor/ffmpeg-mt/ffmpeg-core.worker.js',
+      mt:     true,
+      local:  true,
+    },
+    {
+      ffmpeg: '/vendor/ffmpeg/ffmpeg.js',
+      util:   '/vendor/ffmpeg/util.js',
+      core:   '/vendor/ffmpeg',      // core single-thread (fallback)
+      local:  true,
+    },
     {
       ffmpeg: 'https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js',
       util:   'https://unpkg.com/@ffmpeg/util@0.12.1/dist/umd/index.js',
@@ -27,6 +43,7 @@
 
   let _loadPromise = null;
   let _ffmpeg = null;
+  let _ffmpegMT = false;
   let _cancelado = false;
 
   // ── Carregamento sob demanda ─────────────────────────────────────────
@@ -44,24 +61,43 @@
     if (_ffmpeg) return _ffmpeg;
     if (!_loadPromise) {
       _loadPromise = (async () => {
-        onStatus && onStatus('Baixando motor de vídeo (primeira vez ~31 MB)...');
+        onStatus && onStatus('Carregando motor de vídeo...');
         let ultimoErro = null;
         for (const cdn of CDNS) {
           try {
+            // O core multi-thread só funciona com cross-origin isolation
+            // (SharedArrayBuffer). Se não estiver disponível, pula p/ o
+            // single-thread.
+            if (cdn.mt && !self.crossOriginIsolated) {
+              throw new Error('sem cross-origin isolation p/ multi-thread');
+            }
+            if (cdn.local) {
+              // só tenta o vendor local se ele realmente existir no servidor
+              const head = await fetch(cdn.core + '/ffmpeg-core.js', { method: 'HEAD' }).catch(() => null);
+              if (!head || !head.ok) throw new Error('vendor local ausente');
+            } else {
+              onStatus && onStatus('Baixando motor de vídeo do CDN (primeira vez ~31 MB)...');
+            }
             if (!window.FFmpegWASM) await _injectScript(cdn.ffmpeg);
             if (!window.FFmpegUtil) await _injectScript(cdn.util);
             const { FFmpeg } = window.FFmpegWASM;
             const { toBlobURL } = window.FFmpegUtil;
             const ff = new FFmpeg();
-            await ff.load({
+            const cfg = {
               coreURL: await toBlobURL(cdn.core + '/ffmpeg-core.js', 'text/javascript'),
               wasmURL: await toBlobURL(cdn.core + '/ffmpeg-core.wasm', 'application/wasm'),
-            });
+            };
+            if (cdn.mt && cdn.worker) {
+              onStatus && onStatus('Carregando motor de vídeo (multi-thread, mais rápido)...');
+              cfg.workerURL = await toBlobURL(cdn.worker, 'text/javascript');
+            }
+            await ff.load(cfg);
             _ffmpeg = ff;
+            _ffmpegMT = !!cdn.mt;
             return ff;
           } catch (e) {
             ultimoErro = e;
-            onStatus && onStatus('CDN indisponível, tentando alternativa...');
+            onStatus && onStatus('Tentando outra configuração do motor...');
           }
         }
         throw new Error('Não consegui baixar o motor de vídeo (rede bloqueando ' +
@@ -98,12 +134,15 @@
   }
 
   function _baixarBlob(u8, nome) {
-    const blob = new Blob([u8.buffer], { type: 'video/mp4' });
+    _baixarBlobDireto(new Blob([u8.buffer], { type: 'video/mp4' }), nome);
+  }
+
+  function _baixarBlobDireto(blob, nome) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url; a.download = nome;
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 8000);
+    setTimeout(() => URL.revokeObjectURL(url), 15000);
   }
 
   const _fmtT = s => {
@@ -113,12 +152,20 @@
     return `${h}:${String(m).padStart(2, '0')}:${sec.padStart(6, '0')}`;
   };
 
-  // ── API pública: exportar cortes como MP4 ────────────────────────────
+  // ── NÚCLEO: corta e devolve Blobs (usado pelo export e pelo handoff) ─
   // cuts: [{startSec, endSec}], file: File do vídeo carregado
-  async function videoExportarCortesMP4(file, cuts, onStatus, onProgress) {
+  // modo: 'reencode' (padrão) -> H.264 universal, abre no Windows Media
+  //        Player; mais lento (usado no DOWNLOAD do .mp4 final).
+  //       'copy' -> corte rápido em stream-copy, SEM re-encode; usado no
+  //        envio para o EDITOR, que reprocessa o vídeo internamente na
+  //        hora de exportar (então não precisa do re-encode aqui — era o
+  //        que travava "meia hora" ao mandar pro editor).
+  // retorna [{ nome, blob }]
+  async function videoCortarParaBlobs(file, cuts, onStatus, onProgress, modo) {
     if (!file) throw new Error('Nenhum vídeo carregado.');
     if (!cuts || !cuts.length) throw new Error('Nenhum corte definido na timeline.');
     _cancelado = false;
+    const rapido = modo === 'copy';
 
     const ff = await _ensureFFmpeg(onStatus);
     const progHandler = ({ progress }) => onProgress && onProgress(Math.min(1, progress));
@@ -127,7 +174,7 @@
     const m = await _mount(ff, [file]);
     const inPath = (m.dir ? m.dir + '/' : '/') + file.name;
     const baseName = file.name.replace(/\.[^.]+$/, '');
-    let ok = 0;
+    const saida = [];
 
     try {
       for (let i = 0; i < cuts.length; i++) {
@@ -135,28 +182,94 @@
         const c = cuts[i];
         const dur = c.endSec - c.startSec;
         if (dur <= 0) continue;
-        onStatus && onStatus(`Cortando trecho ${i + 1}/${cuts.length} ` +
+        onStatus && onStatus(
+          (rapido ? 'Preparando' : 'Cortando') + ` trecho ${i + 1}/${cuts.length} ` +
           `(${_fmtT(c.startSec)} → ${_fmtT(c.endSec)})...`);
         const out = `corte_${i + 1}.mp4`;
-        await ff.exec([
+
+        const comum = [
           '-ss', _fmtT(c.startSec),
           '-i', inPath,
           '-t', _fmtT(dur),
-          '-map', '0',
-          '-c', 'copy',
-          '-avoid_negative_ts', 'make_zero',
-          out,
-        ]);
+          '-map', '0:v:0',
+          '-map', '0:a:0?',
+          '-dn',
+          '-map_metadata', '-1',
+          '-map_chapters', '-1',
+        ];
+
+        if (rapido) {
+          // Corte RÁPIDO em stream-copy (segundos) para enviar ao EDITOR,
+          // que re-encoda depois no export dele. Usa -ss como OUTPUT seek
+          // (depois do -i) para o trecho começar no keyframe correto e o
+          // preview do editor não ficar preto no frame 0.
+          await ff.exec([
+            '-i', inPath,
+            '-ss', _fmtT(c.startSec),
+            '-t', _fmtT(dur),
+            '-map', '0:v:0',
+            '-map', '0:a:0?',
+            '-dn',
+            '-map_metadata', '-1',
+            '-map_chapters', '-1',
+            '-c', 'copy',
+            '-avoid_negative_ts', 'make_zero',
+            '-movflags', '+faststart',
+            out,
+          ]);
+        } else {
+          // Corte com RE-ENCODE p/ H.264 + AAC (receita do editor local,
+          // backend/app/engine.py -> trim), compatível com Windows Media
+          // Player. Mais lento, mas gera um MP4 universal p/ download.
+          await ff.exec([
+            ...comum,
+            '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20',
+            '-pix_fmt', 'yuv420p',
+            '-threads', _ffmpegMT ? '0' : '1',   // 0 = usa todos os núcleos (core-mt)
+            '-c:a', 'aac', '-ar', '48000',
+            '-vsync', 'cfr',
+            '-movflags', '+faststart',
+            out,
+          ]);
+        }
         const data = await ff.readFile(out);
         await ff.deleteFile(out).catch(() => {});
-        _baixarBlob(data, `${baseName}_corte${i + 1}.mp4`);
-        ok++;
+        saida.push({
+          nome: `${baseName}_corte${i + 1}.mp4`,
+          blob: new Blob([data.buffer], { type: 'video/mp4' }),
+        });
       }
     } finally {
       ff.off('progress', progHandler);
       await _unmount(ff, m, [file]);
     }
-    return ok;
+    return saida;
+  }
+
+  // ── API pública: exportar cortes como MP4 (download) ─────────────────
+  // 1 corte = baixa o .mp4 direto; vários = 1 único .zip (o navegador
+  // bloqueia downloads múltiplos em sequência — era um dos motivos da
+  // exportação "não funcionar").
+  async function videoExportarCortesMP4(file, cuts, onStatus, onProgress, modo) {
+    const blobs = await videoCortarParaBlobs(file, cuts, onStatus, onProgress, modo);
+    if (!blobs.length) return 0;
+
+    if (blobs.length === 1 || typeof JSZip === 'undefined') {
+      for (const b of blobs) {
+        _baixarBlobDireto(b.blob, b.nome);
+        // pequeno respiro entre downloads quando não há JSZip
+        if (blobs.length > 1) await new Promise(r => setTimeout(r, 900));
+      }
+      return blobs.length;
+    }
+
+    onStatus && onStatus('Empacotando ' + blobs.length + ' cortes num .zip...');
+    const zip = new JSZip();
+    blobs.forEach(b => zip.file(b.nome, b.blob));
+    const zipBlob = await zip.generateAsync({ type: 'blob' });
+    const base = file.name.replace(/\.[^.]+$/, '');
+    _baixarBlobDireto(zipBlob, base + '_cortes.zip');
+    return blobs.length;
   }
 
   // ── API pública: juntar vários vídeos em um só ───────────────────────
@@ -181,8 +294,10 @@
       await ff.exec([
         '-f', 'concat', '-safe', '0',
         '-i', 'lista.txt',
-        '-map', '0',
+        '-map', '0:v:0',
+        '-map', '0:a:0?',
         '-c', 'copy',
+        '-movflags', '+faststart',
         'unido.mp4',
       ]);
       const data = await ff.readFile('unido.mp4');
@@ -200,6 +315,7 @@
   function videoExportCancelar() { _cancelado = true; }
 
   window.videoExportarCortesMP4 = videoExportarCortesMP4;
+  window.videoCortarParaBlobs   = videoCortarParaBlobs;
   window.videoJuntarMP4 = videoJuntarMP4;
   window.videoExportCancelar = videoExportCancelar;
   // Internos expostos p/ o editor (editor-ffmpeg.js)
