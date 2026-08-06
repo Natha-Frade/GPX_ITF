@@ -12,7 +12,6 @@
 // tamanho do trecho exportado.
 
 import { FFmpeg } from '@ffmpeg/ffmpeg'
-import { toBlobURL } from '@ffmpeg/util'
 import { probeFile } from '../probe'
 
 // Fontes do core (~31MB, fica em cache), em ordem:
@@ -25,6 +24,30 @@ const CORES = [
   'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd',
 ]
 
+// Converte qualquer coisa lancada (Error, ErrorEvent de Worker, string,
+// objeto solto) numa mensagem legivel. Sem isso, um erro de Worker chega
+// como evento sem .message e a UI mostra apenas "undefined".
+function _descreveErro(e) {
+  if (!e) return 'erro desconhecido'
+  if (typeof e === 'string') return e
+  if (e.message) return e.message
+  if (e.type) return `evento "${e.type}"` + (e.filename ? ` em ${e.filename}` : '')
+  try { return JSON.stringify(e) } catch { return String(e) }
+}
+
+// Baixa o arquivo checando o status HTTP. toBlobURL nao valida resposta:
+// um 404 vira um Blob com o HTML da pagina de erro, e o ffmpeg so quebra
+// depois, com uma mensagem que nao aponta pra causa.
+async function _blobURLVerificado(url, mime) {
+  const res = await fetch(url)
+  if (!res.ok) throw new Error(`${url} respondeu ${res.status}`)
+  const tipo = res.headers.get('content-type') || ''
+  if (tipo.includes('text/html')) {
+    throw new Error(`${url} devolveu HTML — o arquivo nao esta publicado no servidor`)
+  }
+  return URL.createObjectURL(new Blob([await res.arrayBuffer()], { type: mime }))
+}
+
 let _ffmpeg = null
 let _loading = null
 
@@ -33,22 +56,26 @@ export async function ensureFFmpeg(onStatus) {
   if (!_loading) {
     _loading = (async () => {
       onStatus && onStatus('Baixando motor de vídeo (primeira vez, ~31 MB)…')
-      let lastErr = null
+      const falhas = []
       for (const base of CORES) {
         try {
+          onStatus && onStatus(`Carregando motor de vídeo de ${base}…`)
           const ff = new FFmpeg()
+          ff.on('log', ({ message }) => console.debug('[ffmpeg]', message))
           await ff.load({
-            coreURL: await toBlobURL(`${base}/ffmpeg-core.js`, 'text/javascript'),
-            wasmURL: await toBlobURL(`${base}/ffmpeg-core.wasm`, 'application/wasm'),
+            coreURL: await _blobURLVerificado(`${base}/ffmpeg-core.js`, 'text/javascript'),
+            wasmURL: await _blobURLVerificado(`${base}/ffmpeg-core.wasm`, 'application/wasm'),
           })
           _ffmpeg = ff
           return ff
         } catch (e) {
-          lastErr = e
+          const motivo = _descreveErro(e)
+          console.error(`[ffmpeg] falhou em ${base}:`, e)
+          falhas.push(`${base}: ${motivo}`)
         }
       }
       _loading = null
-      throw new Error('não consegui baixar o motor de vídeo (rede bloqueou os CDNs): ' + lastErr?.message)
+      throw new Error('não consegui carregar o motor de vídeo.\n' + falhas.join('\n'))
     })()
   }
   return _loading
