@@ -5,9 +5,32 @@ editor-src/node_modules
 gpx_imtraff.db
 *.db
 .git
+.gitignore
+.claude
+.mcp.json
 
 data_conversor
 
 # ffmpeg embutido: 160 MB de DLL de Windows, inútil numa imagem Linux
 # (o Dockerfile instala o ffmpeg do sistema via apt)
 bin/ffmpeg
+
+# exiftool para Windows: inútil no Linux, o apt instala libimage-exiftool-perl
+exiftool.exe
+exiftool_files/
+
+# conversor .exe (distribuição Windows, não roda no container)
+conversor-exe/
+
+# documentação e teste local
+docs/
+teste_local.py
+
+# ATENÇÃO - decisão sua:
+# data_scripts/ são 79 MB de .zip commitados. Excluindo aqui, a biblioteca de
+# scripts nasce vazia no container. Como o disco do Railway é efêmero, ela
+# ficaria vazia de novo a cada deploy mesmo se copiada. Descomente quando
+# mover essa pasta para um volume ou object storage:
+# data_scripts/
+
+# data_kmz/ (968 KB) fica na imagem de propósito: é conteúdo semente pequeno.
