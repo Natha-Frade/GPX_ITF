@@ -174,6 +174,9 @@ function _kmzTam(b) {
 
 // ── Init: mostra o painel de admin só para quem é admin ──────────────
 function kmzLibInit() {
+  // Sem sessao nao chamamos a rota protegida: o 401 derrubava a
+  // pagina em loop. O boot/login chama esta funcao quando autenticar.
+  if (typeof apiLogado === 'function' && !apiLogado()) return;
   const painel = document.getElementById('kmzLibAdmin');
   if (painel) {
     painel.style.display = (typeof apiIsAdmin === 'function' && apiIsAdmin())
@@ -182,7 +185,9 @@ function kmzLibInit() {
   kmzLibListar();
 }
 
+// O index.html chama kmzLibInit() logo apos o login ser confirmado.
+// Mantemos este hook so para o caso de a sessao ja existir no load; o
+// guard acima faz ele virar no-op quando nao ha token.
 document.addEventListener('DOMContentLoaded', () => {
-  // Espera o boot da sessão resolver antes de pedir a lista.
   setTimeout(kmzLibInit, 600);
 });

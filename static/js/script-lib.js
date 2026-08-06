@@ -169,6 +169,8 @@ function _scrTam(b) {
 
 // ── Init ─────────────────────────────────────────────────────────────
 function scrInit() {
+  // Mesmo guard do kmz-lib: sem sessao, nao pede a lista.
+  if (typeof apiLogado === 'function' && !apiLogado()) return;
   const painel = document.getElementById('scrAdmin');
   if (painel) {
     painel.style.display = (typeof apiIsAdmin === 'function' && apiIsAdmin())

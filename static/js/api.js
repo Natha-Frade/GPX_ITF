@@ -23,9 +23,22 @@ async function apiFetch(path, options = {}) {
   const res = await fetch(API_BASE + path, { ...options, headers });
 
   if (res.status === 401) {
-    apiLogout();
-    window.location.reload();
-    return;
+    // NAO recarrega a pagina. reload() em 401 gera loop infinito quando
+    // ainda nao ha sessao: cada carregamento dispara nova chamada -> 401
+    // -> reload. Limpamos a sessao e reabrimos o overlay de login.
+    // O guard de path evita a recursao apiLogout -> apiFetch -> apiLogout.
+    if (path !== '/auth/logout') {
+      _token = _nomeUser = null;
+      _isAdmin = false;
+      localStorage.removeItem('gpx_token');
+      localStorage.removeItem('gpx_nome');
+      localStorage.removeItem('gpx_isAdmin');
+      const ov = document.getElementById('loginOverlay');
+      if (ov) ov.style.display = 'flex';
+      const bar = document.getElementById('userBar');
+      if (bar) bar.style.display = 'none';
+    }
+    throw new Error('Sessao expirada. Faca login novamente.');
   }
 
   if (!res.ok) {

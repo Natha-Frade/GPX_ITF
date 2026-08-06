@@ -19,7 +19,7 @@
   <script src="/vendor/jszip/jszip.min.js"></script>
 
   <!-- App Styles -->
-  <link rel="stylesheet" href="css/styles.css?v=20250805f">
+  <link rel="stylesheet" href="css/styles.css?v=20260806a">
 </head>
 <body>
 
@@ -967,25 +967,25 @@
 <!-- ══════════════════════════════════════════════════════════════════
      SCRIPTS  (order matters: map → cut → merge → points)
 ════════════════════════════════════════════════════════════════════ -->
-<script src="js/api.js?v=20250805f"></script>
-<script src="js/config.js?v=20250805f"></script>
-<script src="js/streetview.js?v=20250805f"></script>
-<script src="js/map.js?v=20250805f"></script>
-<script src="js/kmcalc.js?v=20250805f"></script>
-<script src="js/cut.js?v=20250805f"></script>
-<script src="js/merge.js?v=20250805f"></script>
-<script src="js/kmz.js?v=20250805f"></script>
-<script src="js/handoff.js?v=20250805f"></script>
+<script src="js/api.js?v=20260806a"></script>
+<script src="js/config.js?v=20260806a"></script>
+<script src="js/streetview.js?v=20260806a"></script>
+<script src="js/map.js?v=20260806a"></script>
+<script src="js/kmcalc.js?v=20260806a"></script>
+<script src="js/cut.js?v=20260806a"></script>
+<script src="js/merge.js?v=20260806a"></script>
+<script src="js/kmz.js?v=20260806a"></script>
+<script src="js/handoff.js?v=20260806a"></script>
 <script src="js/segments.js?v=20260805a"></script>
 <script src="js/points.js?v=20260805a"></script>
-<script src="js/kmz-lib.js?v=20250805f"></script>
-<script src="js/script-lib.js?v=20250805f"></script>
-<script src="js/search.js?v=20250805f"></script>
-<script src="js/video.js?v=20250805f"></script>
-<script src="js/gpmf.js?v=20250805f"></script>
-<script src="js/batch-browser.js?v=20250805f"></script>
-<script src="js/batch.js?v=20250805f"></script>
-<script src="js/video-export.js?v=20250805f"></script>
+<script src="js/kmz-lib.js?v=20260806a"></script>
+<script src="js/script-lib.js?v=20260806a"></script>
+<script src="js/search.js?v=20260806a"></script>
+<script src="js/video.js?v=20260806a"></script>
+<script src="js/gpmf.js?v=20260806a"></script>
+<script src="js/batch-browser.js?v=20260806a"></script>
+<script src="js/batch.js?v=20260806a"></script>
+<script src="js/video-export.js?v=20260806a"></script>
 <!-- ══════════════════════════════════════════════════════════════════
      TELA DE LOGIN
 ════════════════════════════════════════════════════════════════════ -->
@@ -1034,6 +1034,8 @@
     await apiFetch('/auth/me');
     esconderLogin();
     carregarDadosDoServidor();
+    if (typeof kmzLibInit === 'function') kmzLibInit();
+    if (typeof scrInit    === 'function') scrInit();
   } catch(_) {
     await apiLogout();
   }
@@ -1052,6 +1054,8 @@ async function fazerLogin() {
     await apiLogin(nome, senha);
     esconderLogin();
     carregarDadosDoServidor();
+    if (typeof kmzLibInit === 'function') kmzLibInit();
+    if (typeof scrInit    === 'function') scrInit();
   } catch(e) {
     errEl.textContent = e.message;
     errEl.style.display = '';
