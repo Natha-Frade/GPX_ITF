@@ -1,0 +1,13 @@
+# não copiar dependências/artefatos locais para a imagem (o build gera tudo)
+editor-src/node_modules
+**/__pycache__
+*.pyc
+gpx_imtraff.db
+*.db
+.git
+
+data_conversor
+
+# ffmpeg embutido: 160 MB de DLL de Windows, inútil numa imagem Linux
+# (o Dockerfile instala o ffmpeg do sistema via apt)
+bin/ffmpeg

@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Editor de Vídeo — GPX IMTRAFF</title>
+<link rel="icon" href="favicon.png">
+<link rel="stylesheet" href="css/editor.css">
+</head>
+<body>
+
+  <!-- TOPO -->
+  <div class="topbar">
+    <div class="logo"><img src="logo.png" alt="" onerror="this.style.display='none'"><span>GPX <b>IMTRAFF</b> — Editor</span></div>
+    <a class="back" href="index.html">← Voltar ao mapa</a>
+    <div class="spacer"></div>
+    <button class="btn" onclick="exportAllGPX()">GPX de todos</button>
+    <button class="btn primary" onclick="showExportModal()">⬇ Exportar</button>
+  </div>
+
+  <!-- CORPO -->
+  <div class="main">
+
+    <!-- BIBLIOTECA -->
+    <div class="lib">
+      <div class="panel-title">BIBLIOTECA <span class="badge" id="libBadge">0</span></div>
+      <div class="lib-drop" id="libDrop">🎬 Clique ou arraste vídeos<br><span style="font-size:0.58rem;">MP4 / MOV — pode selecionar vários</span></div>
+      <input type="file" id="libInput" accept="video/*" multiple hidden>
+      <div class="lib-grid" id="libGrid"></div>
+    </div>
+
+    <!-- PLAYER -->
+    <div class="viewer">
+      <div class="viewer-stage">
+        <div id="viewerEmpty">Nenhum clipe aberto<br><span style="font-size:0.65rem;">Adicione vídeos na biblioteca e clique para abrir</span></div>
+        <video id="mainPlayer" playsinline></video>
+        <div id="tcOverlay">0:00:00.000</div>
+        <div id="gpsOverlay"></div>
+      </div>
+      <div class="transport">
+        <button class="t-btn" onclick="seekRel(-10)" title="−10s (J)">⏪</button>
+        <button class="t-btn" onclick="seekRel(-1)"  title="−1s">◂</button>
+        <button class="t-btn" id="playBtn" onclick="togglePlay()" title="Play/Pause (Espaço)">▶</button>
+        <button class="t-btn" onclick="seekRel(1)"   title="+1s">▸</button>
+        <button class="t-btn" onclick="seekRel(10)"  title="+10s (L)">⏩</button>
+        <span id="tcDisplay">0:00:00.000</span>
+        <div class="sep"></div>
+        <button class="btn" onclick="markCutNow()" title="Marcar corte no instante atual (C)">✂ Cortar aqui</button>
+        <button class="btn" onclick="removeLastCut()" title="Remove o último corte (Delete)">↶</button>
+        <button class="btn" onclick="clearAllCuts()">Limpar cortes</button>
+        <div class="sep"></div>
+        <button class="btn" onclick="addActiveToTimeline()">+ Timeline</button>
+        <label>Vol <input type="range" min="0" max="1" step="0.05" value="1" oninput="setVol(this.value)" style="width:70px;"></label>
+        <span class="kbd-hint"><b>Espaço</b> play · <b>C</b> corta · <b>←→</b> frame · <b>Ctrl←→</b> 1s · <b>Shift←→</b> 10s</span>
+      </div>
+    </div>
+
+    <!-- PAINEL DIREITO -->
+    <div class="side">
+      <div class="panel-title">PROPRIEDADES</div>
+      <div class="box" id="propRows"></div>
+
+      <div class="panel-title">SEGMENTOS <span class="badge" id="segBadge">0</span></div>
+      <div class="box">
+        <div id="segList"></div>
+        <button class="btn" onclick="exportSegments()">⬇ Baixar todos os segmentos</button>
+      </div>
+
+      <div class="panel-title">GPS → GPX</div>
+      <div class="box">
+        <button class="btn" onclick="extractActiveGPS()"> Extrair GPS do clipe ativo</button>
+        <div id="gpsProgressWrap" style="display:none;">
+          <div class="gps-progress"><div id="gpsBarFill"></div></div>
+          <div id="gpsBarTxt"></div>
+        </div>
+      </div>
+
+      <div class="panel-title">EXPORTAR TIMELINE</div>
+      <div class="box">
+        <button class="btn primary" id="ffTimelineBtn" onclick="exportTimelineMP4()">🎞 Timeline inteira → 1 MP4</button>
+        <div style="font-size:0.56rem;color:var(--muted);margin-top:5px;line-height:1.5;">
+          Junta os clipes na ordem da timeline, respeitando os aparos das bordas.
+          Sem re-encode (corte no keyframe, ~1s de folga).
+        </div>
+        <div class="ff-progress"><div id="ffFill"></div></div>
+        <div id="ffStatus"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TIMELINE -->
+  <div id="tlArea">
+    <div class="tl-toolbar">
+      <span class="panel-title" style="border:none;padding:0;">TIMELINE</span>
+      <div class="grow"></div>
+      <label style="font-size:0.6rem;color:var(--muted);">Zoom</label>
+      <input type="range" id="zoomSlider" min="4" max="200" step="1" value="60" style="width:130px;accent-color:var(--accent);">
+      <span id="zoomVal">60px/s</span>
+    </div>
+    <div id="tlScroll">
+      <div id="tlInner">
+        <div id="tlRuler"><div id="rulerHead"></div></div>
+        <div id="tlTrack">
+          <div id="tlEmpty">Arraste vídeos para a biblioteca e clique em “+” para montar a timeline</div>
+          <div id="tlHead"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL EXPORTAR -->
+  <div class="modal-overlay" id="exportModal" onclick="if(event.target===this)hideExportModal()">
+    <div class="modal">
+      <h3>⬇ Exportar</h3>
+      <label><input type="checkbox" id="expGpx" checked> GPX dos clipes com GPS extraído</label>
+      <label><input type="checkbox" id="expSegs"> Segmentos do clipe ativo (MP4)</label>
+      <label><input type="checkbox" id="expFull"> Arquivos originais completos</label>
+      <div class="row">
+        <button class="btn" onclick="hideExportModal()">Cancelar</button>
+        <button class="btn primary" onclick="runExport()">Exportar</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toasts"></div>
+
+  <script src="js/gpmf.js"></script>
+  <script src="js/video-export.js"></script>
+  <script src="js/editor-page.js"></script>
+  <script src="js/editor-ffmpeg.js"></script>
+</body>
+</html>

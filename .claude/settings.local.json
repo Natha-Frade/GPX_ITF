@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/Users/natha/**)",
+      "Read(//c/Users/natha/.claude/**)",
+      "WebSearch",
+      "WebFetch(domain:docs.glyph.you)",
+      "Bash(git checkout *)"
+    ]
+  }
+}

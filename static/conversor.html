@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="referrer" content="same-origin">
+<title>Conversor de Vídeo — GPX IMTRAFF</title>
+<link rel="icon" href="/favicon.png">
+<style>
+  :root{
+    --asfalto:#2b2e31;       /* texto principal */
+    --concreto:#f2f1ed;      /* fundo */
+    --placa-verde:#00693c;   /* sinalização de indicação */
+    --placa-verde-esc:#00542f;
+    --faixa-amarela:#f5b800; /* advertência */
+    --alerta:#c0392b;
+    --linha:#d8d6cf;
+    --card:#ffffff;
+    --mono:ui-monospace,'Cascadia Mono','Roboto Mono',Consolas,monospace;
+  }
+  *{box-sizing:border-box;margin:0}
+  body{font:15px/1.5 'Segoe UI',Roboto,system-ui,sans-serif;color:var(--asfalto);
+       background:var(--concreto);padding-bottom:80px}
+  header{background:var(--asfalto);color:#fff;padding:14px 24px;
+         display:flex;align-items:center;gap:14px}
+  header .marco{background:var(--placa-verde);border:2px solid #fff;
+    border-radius:6px;padding:3px 10px;font-weight:700;font-size:13px;
+    letter-spacing:.5px}
+  header h1{font-size:17px;font-weight:600}
+  header small{opacity:.65;margin-left:auto;font-size:12px}
+  header a{color:#fff;opacity:.7;font-size:12px;text-decoration:none;margin-left:14px}
+  header a:hover{opacity:1;text-decoration:underline}
+  main{max-width:1060px;margin:26px auto;padding:0 20px}
+
+  /* etapa = marco quilométrico */
+  .etapa{display:flex;align-items:baseline;gap:10px;margin:30px 0 12px}
+  .etapa .km{background:#fff;border:2px solid var(--asfalto);border-radius:4px;
+    font-family:var(--mono);font-weight:700;font-size:13px;padding:2px 9px}
+  .etapa h2{font-size:16px;font-weight:600}
+  .etapa p{color:#6b6e72;font-size:13px}
+
+  .card{background:var(--card);border:1px solid var(--linha);border-radius:10px;
+        padding:16px 18px}
+
+  input[type=file]{display:none}
+  .botao{display:inline-block;background:var(--placa-verde);color:#fff;border:0;
+    border-radius:8px;padding:9px 18px;font-size:14px;font-weight:600;
+    cursor:pointer;transition:background .15s;font-family:inherit}
+  .botao:hover{background:var(--placa-verde-esc)}
+  .botao.secundario{background:#fff;color:var(--asfalto);
+    border:1.5px solid var(--asfalto)}
+  .botao.perigo{background:#fff;color:var(--alerta);border:1.5px solid var(--alerta)}
+  .botao.pequeno{padding:5px 12px;font-size:12.5px;border-radius:6px}
+  .botao:disabled{opacity:.45;cursor:not-allowed}
+
+  /* zona de envio com faixa tracejada de rodovia */
+  .zona{border:2px dashed var(--faixa-amarela);background:#fff;border-radius:12px;
+    padding:34px 20px;text-align:center;cursor:pointer;transition:background .15s}
+  .zona.arrasto{background:#fdf6df}
+  .zona p{color:#6b6e72;font-size:13px;margin-top:6px}
+  .zona .lista{font-family:var(--mono);font-size:12px;color:var(--asfalto);
+    margin-top:10px;text-align:left;max-height:120px;overflow:auto}
+
+  .opcoes{display:flex;flex-wrap:wrap;gap:18px;align-items:center;margin-top:14px}
+  .opcoes label{font-size:13.5px;display:flex;align-items:center;gap:7px}
+  select{font:14px 'Segoe UI',Roboto,system-ui,sans-serif;padding:7px 10px;
+    border:1.5px solid var(--linha);border-radius:8px;background:#fff}
+
+  .acao{margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .aviso-servidor{font-size:13px;color:var(--alerta);font-weight:600}
+  .status-ok{font-size:13px;color:#6b6e72}
+
+  /* fila */
+  .job{background:#fff;border:1px solid var(--linha);border-radius:10px;
+    padding:14px 16px;margin-bottom:10px}
+  .job .topo{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .job .nome{font-weight:600;font-size:14px;flex:1;min-width:200px;
+    word-break:break-all}
+  .job .dono{font-size:11.5px;color:#6b6e72;font-family:var(--mono)}
+  .selo{font-size:11.5px;font-weight:700;letter-spacing:.4px;padding:2px 9px;
+    border-radius:20px;text-transform:uppercase}
+  .selo.reservado,.selo.recebendo{background:#e6eef7;color:#2c5d8f}
+  .selo.fila{background:#eceae4;color:#6b6e72}
+  .selo.analisando,.selo.convertendo{background:#fff5d1;color:#8a6d00}
+  .selo.concluido{background:#e0f0e7;color:var(--placa-verde)}
+  .selo.erro{background:#fbe4e1;color:var(--alerta)}
+  .selo.cancelado{background:#eceae4;color:#6b6e72}
+
+  .barra{height:8px;background:#eceae4;border-radius:20px;overflow:hidden;
+    margin-top:10px}
+  .barra i{display:block;height:100%;background:var(--placa-verde);
+    width:0;transition:width .4s}
+  .barra.erro i{background:var(--alerta)}
+
+  .detalhe{font-family:var(--mono);font-size:12px;color:#6b6e72;margin-top:8px;
+    display:flex;flex-wrap:wrap;gap:14px}
+  .detalhe b{color:var(--asfalto);font-weight:600}
+  .msg-erro{font-family:var(--mono);font-size:11.5px;color:var(--alerta);
+    background:#fdf3f2;border:1px solid #f3d5d1;border-radius:6px;padding:8px 10px;
+    margin-top:9px;white-space:pre-wrap;max-height:150px;overflow:auto}
+  .msg-aviso{font-size:12.5px;color:#8a6d00;background:#fff9e6;
+    border:1px solid #f0e0b0;border-radius:6px;padding:7px 10px;margin-top:9px}
+  .vazio{color:#6b6e72;font-size:13.5px;padding:18px 0}
+
+  .nota{font-size:12.5px;color:#6b6e72;margin-top:10px;line-height:1.6}
+  .nota code{font-family:var(--mono);font-size:11.5px;background:#eceae4;
+    padding:1px 5px;border-radius:4px}
+</style>
+</head>
+<body>
+
+<header>
+  <span class="marco">ITF</span>
+  <h1>Conversor de Vídeo</h1>
+  <small>4K HEVC da GoPro → H.264 que abre em qualquer máquina</small>
+  <a href="/">← voltar</a>
+</header>
+
+<main>
+
+  <div class="etapa">
+    <span class="km">km 0</span>
+    <div>
+      <h2>Enviar os vídeos</h2>
+      <p>Pode selecionar vários. Cada um sobe numa conexão própria, em fila.</p>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="zona" id="zona">
+      <strong>Clique ou arraste</strong> os vídeos aqui
+      <p>MP4 / MOV / MKV / AVI / TS — inclusive 4K HEVC direto do cartão da GoPro</p>
+      <div class="lista" id="lista"></div>
+    </div>
+    <input type="file" id="entrada"
+           accept="video/mp4,video/quicktime,video/x-matroska,.mp4,.mov,.m4v,.mkv,.avi,.mts,.m2ts,.ts,.lrv"
+           multiple>
+
+    <div class="opcoes">
+      <label>
+        Saída
+        <select id="perfil"></select>
+      </label>
+      <label title="Tenta copiar a faixa gpmd (GPS da GoPro) para o arquivo convertido. Se o formato não aceitar, converte sem ela.">
+        <input type="checkbox" id="telemetria">
+        manter a telemetria GPS (gpmd)
+      </label>
+    </div>
+
+    <div class="acao">
+      <button class="botao" id="btEnviar" disabled>Converter</button>
+      <button class="botao secundario pequeno" id="btLimpar">Limpar seleção</button>
+      <span id="statusServidor"></span>
+    </div>
+
+    <div class="nota">
+      A conversão força <code>-pix_fmt yuv420p</code>. A GoPro grava em
+      <code>yuvj420p</code>, que o player do Windows recusa — é a causa de
+      "não é possível abrir o arquivo" mesmo com o vídeo íntegro.<br>
+      Limite de <b><span id="maxGb">20</span> GB</b> por arquivo. Os arquivos
+      ficam no servidor por <span id="ttl">12</span> h e depois são apagados
+      sozinhos. Só você (e o admin) enxerga as suas conversões.
+    </div>
+  </div>
+
+  <div class="etapa">
+    <span class="km">km 1</span>
+    <div>
+      <h2>Fila de conversão</h2>
+      <p>Atualiza sozinha. Pode fechar a aba: o servidor continua trabalhando.</p>
+    </div>
+  </div>
+
+  <div id="fila"><div class="vazio">Nenhuma conversão ainda.</div></div>
+
+</main>
+
+<script src="/js/conversor.js?v=20260804b"></script>
+</body>
+</html>

@@ -1,0 +1,149 @@
+import os
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+from sqlalchemy import text
+from validacao.router import router as validacao_router
+from .database import engine, Base, SessionLocal
+from . import models, auth
+from .routers import admin, dados, gopro, sharepoint, sharepoint_media, kmz_lib, script_lib, conversor
+
+# Cria tabelas
+Base.metadata.create_all(bind=engine)
+
+# Seed: garante que existe pelo menos 1 admin padrão
+def seed_admin():
+    from .auth import hash_senha
+    db = SessionLocal()
+    try:
+        if not db.query(models.Usuario).filter_by(is_admin=True).first():
+            admin_nome  = os.getenv("ADMIN_NOME",  "admin")
+            admin_senha = os.getenv("ADMIN_SENHA", "imtraff2024")
+            u = models.Usuario(
+                nome=admin_nome,
+                senha_hash=hash_senha(admin_senha),
+                is_admin=True,
+            )
+            db.add(u)
+            db.commit()
+            print(f"[SEED] Admin criado: {admin_nome}")
+    finally:
+        db.close()
+
+seed_admin()
+
+app = FastAPI(title="GPX IMTRAFF", docs_url="/api/docs")
+
+# ── Cross-Origin Isolation p/ o ffmpeg.wasm MULTI-THREAD ──────────────
+#  O core multi-thread (bem mais rápido no re-encode) precisa de
+#  SharedArrayBuffer, que só existe quando a página é "cross-origin
+#  isolated". Isso exige os headers COOP + COEP. Usamos COEP
+#  "credentialless" (em vez de "require-corp") para NÃO quebrar os tiles
+#  do mapa (OpenStreetMap) e outros recursos externos sem CORS.
+@app.middleware("http")
+async def _coop_coep(request, call_next):
+    resp = await call_next(request)
+    resp.headers["Cross-Origin-Opener-Policy"] = "same-origin"
+    resp.headers["Cross-Origin-Embedder-Policy"] = "credentialless"
+
+    # ── CACHE ────────────────────────────────────────────────────────
+    #  /vendor: bibliotecas de versão fixa (leaflet 1.9.4, ffmpeg core...).
+    #  Nunca mudam, então marcamos como "immutable" por 1 ano: o navegador
+    #  para de rebaixar/revalidar os ~32 MB do motor de vídeo a cada visita
+    #  — a partir da 2ª vez o carregamento é instantâneo.
+    caminho = request.url.path
+    if caminho.startswith("/vendor/"):
+        resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    elif caminho.startswith(("/js/", "/css/", "/editor/")):
+        #  Aqui NÃO usamos cache longo de propósito: você edita esses
+        #  arquivos com frequência. Com must-revalidate + ETag o navegador
+        #  faz uma checagem mínima (resposta 304, sem baixar de novo) e
+        #  nunca serve versão velha por engano.
+        #  O /editor entra aqui também: os arquivos dele têm nome fixo
+        #  (index-IiQcigx_.js), então sem esta regra o navegador guardava a
+        #  versão antiga para sempre — foi o que fez a correção das URLs de
+        #  CDN do editor "não pegar" mesmo com o arquivo já trocado.
+        resp.headers["Cache-Control"] = "public, max-age=0, must-revalidate"
+    elif resp.headers.get("content-type", "").startswith("text/html"):
+        #  As páginas HTML saíam SEM Cache-Control nenhum. Com apenas
+        #  ETag + Last-Modified o navegador aplica cache heurístico
+        #  (chuta uma validade, na prática ~10% do tempo desde a última
+        #  modificação) e serve a versão antiga SEM nem perguntar ao
+        #  servidor. Foi isso que fez a aba nova do CONVERSOR não
+        #  aparecer mesmo com o index.html já trocado no disco — e é o
+        #  mesmo sintoma que já tinha acontecido antes com a correção
+        #  do editor.
+        resp.headers["Cache-Control"] = "no-cache"
+    return resp
+
+# ── COMPRESSÃO ────────────────────────────────────────────────────────
+#  Comprime JS/CSS/HTML/JSON antes de enviar. Os ~370 KB de JavaScript da
+#  aplicação caem para cerca de 1/3 disso, deixando o carregamento da
+#  página bem mais rápido — principalmente em rede lenta.
+app.add_middleware(GZipMiddleware, minimum_size=1024)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.include_router(auth.router,   prefix="/api")
+app.include_router(admin.router,  prefix="/api")
+app.include_router(kmz_lib.router, prefix="/api")
+app.include_router(script_lib.router, prefix="/api")
+app.include_router(dados.router,  prefix="/api")
+app.include_router(gopro.router,  prefix="/api")
+app.include_router(sharepoint.router, prefix="/api")
+app.include_router(sharepoint_media.router, prefix="/api")
+app.include_router(conversor.router, prefix="/api")
+app.include_router(validacao_router)
+# ── Serve o frontend estático ─────────────────────────────────────────
+STATIC_DIR = os.path.join(os.path.dirname(__file__), "..", "static")
+
+if os.path.isdir(os.path.join(STATIC_DIR, "js")):
+    app.mount("/js",  StaticFiles(directory=os.path.join(STATIC_DIR, "js")),  name="js")
+if os.path.isdir(os.path.join(STATIC_DIR, "css")):
+    app.mount("/css", StaticFiles(directory=os.path.join(STATIC_DIR, "css")), name="css")
+
+# Motor de vídeo (ffmpeg.wasm) hospedado localmente — evita depender de
+# CDN externo (unpkg/jsdelivr), que redes corporativas costumam bloquear.
+import mimetypes
+mimetypes.add_type("application/wasm", ".wasm")
+if os.path.isdir(os.path.join(STATIC_DIR, "vendor")):
+    app.mount("/vendor", StaticFiles(directory=os.path.join(STATIC_DIR, "vendor")), name="vendor")
+
+# Editor de vídeo (build do Vite em static/editor). html=True faz o /editor/
+# servir o index.html do SPA. Precisa vir ANTES do catch-all lá embaixo.
+EDITOR_DIR = os.path.join(STATIC_DIR, "editor")
+if os.path.isdir(EDITOR_DIR):
+    app.mount("/editor", StaticFiles(directory=EDITOR_DIR, html=True), name="editor")
+
+@app.get("/logo.png")
+def logo():
+    return FileResponse(os.path.join(STATIC_DIR, "logo.png"))
+
+@app.get("/favicon.png")
+def favicon():
+    return FileResponse(os.path.join(STATIC_DIR, "favicon.png"))
+
+@app.get("/admin")
+def admin_page():
+    f = os.path.join(STATIC_DIR, "admin.html")
+    return FileResponse(f)
+
+@app.get("/{full_path:path}")
+def frontend(full_path: str):
+    # 1) Se o caminho corresponde a um arquivo real dentro de static/
+    #    (ex.: editor.html), serve o próprio arquivo.
+    #    abspath + startswith impede path traversal (../../etc/passwd).
+    if full_path:
+        static_abs = os.path.abspath(STATIC_DIR)
+        candidate  = os.path.abspath(os.path.join(static_abs, full_path))
+        if candidate.startswith(static_abs + os.sep) and os.path.isfile(candidate):
+            return FileResponse(candidate)
+    # 2) Senão, comportamento SPA: qualquer rota serve o index.html
+    return FileResponse(os.path.join(STATIC_DIR, "index.html"))

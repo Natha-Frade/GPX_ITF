@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GPX IMTRAFF — Admin</title>
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <link rel="apple-touch-icon" href="/favicon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/admin.css?v=20250730b">
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div style="width:36px;height:36px;display:flex;align-items:center;justify-content:center;">
+      <img src="/logo.png" style="width:32px;height:32px;object-fit:contain;">
+    </div>
+    <div>
+      <h1>GPX IMTRAFF</h1>
+      <span>Painel Administrativo</span>
+    </div>
+  </div>
+  <div class="header-right">
+    <span class="user-badge" id="adminNome"></span>
+    <button class="btn-back" onclick="location.href='/'">← Voltar ao App</button>
+    <button class="btn-back" onclick="fazerLogout()">Sair</button>
+  </div>
+</header>
+
+<main>
+  <!-- Stats -->
+  <div class="stats-grid">
+    <div class="stat-card">
+      <div class="stat-num" id="sTotal">—</div>
+      <div class="stat-label">Total de Usuários</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-num" id="sOnline">—</div>
+      <div class="stat-label">Online Agora</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-num" id="sMarcacoes">—</div>
+      <div class="stat-label">Marcações Salvas</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-num" id="sCortes">—</div>
+      <div class="stat-label">Cortes Salvos</div>
+    </div>
+  </div>
+
+  <!-- Online agora -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-title"><span class="online-dot"></span>Online Agora</div>
+      <button class="refresh-btn" onclick="carregarOnline()">↻ Atualizar</button>
+    </div>
+    <table>
+      <thead><tr><th>Usuário</th><th>Último Ping</th><th>Ação</th></tr></thead>
+      <tbody id="tbOnline"><tr class="empty-row"><td colspan="3">Ninguém online no momento</td></tr></tbody>
+    </table>
+  </div>
+
+  <!-- Usuários -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-title">Usuários</div>
+      <button class="btn-primary" onclick="abrirModalCriar()">+ Novo Usuário</button>
+    </div>
+    <table>
+      <thead><tr><th>Nome</th><th>Perfil</th><th>Status</th><th>Último Acesso</th><th>Criado em</th><th>Ações</th></tr></thead>
+      <tbody id="tbUsuarios"><tr class="empty-row"><td colspan="6">Carregando…</td></tr></tbody>
+    </table>
+  </div>
+</main>
+
+<!-- Modal Criar/Editar -->
+<div class="modal-overlay" id="modalOverlay" onclick="if(event.target===this)fecharModal()">
+  <div class="modal">
+    <h3 id="modalTitle">Novo Usuário</h3>
+    <div class="form-group">
+      <label class="form-label">Nome</label>
+      <input class="form-input" id="fNome" placeholder="nome do usuário">
+    </div>
+    <div class="form-group">
+      <label class="form-label" id="fSenhaLabel">Senha</label>
+      <input class="form-input" id="fSenha" type="password" placeholder="mínimo 4 caracteres">
+    </div>
+    <div class="form-check">
+      <input type="checkbox" id="fAdmin">
+      <label for="fAdmin">Administrador</label>
+    </div>
+    <div class="form-check" id="fAtivoRow" style="display:none">
+      <input type="checkbox" id="fAtivo" checked>
+      <label for="fAtivo">Conta ativa</label>
+    </div>
+    <div class="error-msg" id="modalError"></div>
+    <div class="modal-footer">
+      <button class="btn-cancel" onclick="fecharModal()">Cancelar</button>
+      <button class="btn-primary" id="modalBtn" onclick="salvarModal()">Criar</button>
+    </div>
+  </div>
+</div>
+
+<script src="/js/api.js"></script>
+<script>
+let editandoId = null;
+let usuariosCache = [];
+
+// ── Boot ──────────────────────────────────────────────────────────────
+(async function() {
+  if (!apiLogado() || !apiIsAdmin()) {
+    location.href = '/';
+    return;
+  }
+  document.getElementById('adminNome').textContent = '👤 ' + apiNome();
+  await Promise.all([carregarStats(), carregarUsuarios(), carregarOnline()]);
+  // Auto-refresh dos online a cada 30s
+  setInterval(carregarOnline, 30000);
+  setInterval(carregarStats, 30000);
+})();
+
+async function fazerLogout() {
+  await apiLogout();
+  location.href = '/';
+}
+
+// ── Stats ─────────────────────────────────────────────────────────────
+async function carregarStats() {
+  try {
+    const s = await apiStats();
+    document.getElementById('sTotal').textContent     = s.total_usuarios;
+    document.getElementById('sOnline').textContent    = s.usuarios_online;
+    document.getElementById('sMarcacoes').textContent = s.total_marcacoes;
+    document.getElementById('sCortes').textContent    = s.total_cortes;
+  } catch(e) {}
+}
+
+// ── Online ────────────────────────────────────────────────────────────
+async function carregarOnline() {
+  const tb = document.getElementById('tbOnline');
+  try {
+    const lista = await apiUsuariosOnline();
+    if (!lista.length) {
+      tb.innerHTML = '<tr class="empty-row"><td colspan="3">Ninguém online no momento</td></tr>';
+      return;
+    }
+    tb.innerHTML = lista.map(s => `
+      <tr>
+        <td><strong>${s.nome}</strong></td>
+        <td style="color:var(--muted);font-size:.75rem;">${formatarData(s.ultimo_ping)}</td>
+        <td><button class="btn-sm btn-kick" onclick="kickUsuario(${s.usuario_id}, '${s.nome}')">Desconectar</button></td>
+      </tr>
+    `).join('');
+  } catch(e) {
+    tb.innerHTML = '<tr class="empty-row"><td colspan="3">Erro ao carregar</td></tr>';
+  }
+}
+
+async function kickUsuario(uid, nome) {
+  if (!confirm(`Encerrar todas as sessões de ${nome}?`)) return;
+  await apiEncerrarSessoes(uid);
+  await carregarOnline();
+}
+
+// ── Usuários ──────────────────────────────────────────────────────────
+async function carregarUsuarios() {
+  const tb = document.getElementById('tbUsuarios');
+  try {
+    usuariosCache = await apiListarUsuarios();
+    if (!usuariosCache.length) {
+      tb.innerHTML = '<tr class="empty-row"><td colspan="6">Nenhum usuário</td></tr>';
+      return;
+    }
+    tb.innerHTML = usuariosCache.map(u => `
+      <tr>
+        <td><strong>${u.nome}</strong></td>
+        <td>${u.is_admin ? '<span class="badge badge-admin">Admin</span>' : '<span class="badge badge-offline">Usuário</span>'}</td>
+        <td>${u.ativo ? '<span class="badge badge-online">Ativo</span>' : '<span class="badge badge-inactive">Inativo</span>'}</td>
+        <td style="color:var(--muted);font-size:.75rem;">${u.ultimo_acesso ? formatarData(u.ultimo_acesso) : '—'}</td>
+        <td style="color:var(--muted);font-size:.75rem;">${formatarData(u.criado_em)}</td>
+        <td>
+          <div class="actions">
+            <button class="btn-sm btn-edit" onclick="abrirModalEditar(${u.id})">Editar</button>
+            <button class="btn-sm btn-del" onclick="deletarUsuario(${u.id}, '${u.nome}')">Remover</button>
+          </div>
+        </td>
+      </tr>
+    `).join('');
+  } catch(e) {
+    tb.innerHTML = '<tr class="empty-row"><td colspan="6">Erro ao carregar</td></tr>';
+  }
+}
+
+async function deletarUsuario(uid, nome) {
+  if (!confirm(`Remover ${nome} permanentemente? Todas as marcações e cortes serão perdidos.`)) return;
+  try {
+    await apiDeletarUsuario(uid);
+    await Promise.all([carregarUsuarios(), carregarStats()]);
+  } catch(e) {
+    alert(e.message);
+  }
+}
+
+// ── Modal ─────────────────────────────────────────────────────────────
+function abrirModalCriar() {
+  editandoId = null;
+  document.getElementById('modalTitle').textContent = 'Novo Usuário';
+  document.getElementById('modalBtn').textContent   = 'Criar';
+  document.getElementById('fNome').value  = '';
+  document.getElementById('fSenha').value = '';
+  document.getElementById('fAdmin').checked = false;
+  document.getElementById('fSenhaLabel').textContent = 'Senha';
+  document.getElementById('fAtivoRow').style.display = 'none';
+  document.getElementById('modalError').style.display = 'none';
+  document.getElementById('modalOverlay').classList.add('active');
+  document.getElementById('fNome').focus();
+}
+
+function abrirModalEditar(uid) {
+  const u = usuariosCache.find(u => u.id === uid);
+  if (!u) return;
+  editandoId = uid;
+  document.getElementById('modalTitle').textContent  = `Editar — ${u.nome}`;
+  document.getElementById('modalBtn').textContent    = 'Salvar';
+  document.getElementById('fNome').value             = u.nome;
+  document.getElementById('fSenha').value            = '';
+  document.getElementById('fAdmin').checked          = u.is_admin;
+  document.getElementById('fAtivo').checked          = u.ativo;
+  document.getElementById('fSenhaLabel').textContent = 'Nova Senha (deixe em branco para manter)';
+  document.getElementById('fAtivoRow').style.display = '';
+  document.getElementById('modalError').style.display = 'none';
+  document.getElementById('modalOverlay').classList.add('active');
+}
+
+function fecharModal() {
+  document.getElementById('modalOverlay').classList.remove('active');
+}
+
+async function salvarModal() {
+  const errEl = document.getElementById('modalError');
+  errEl.style.display = 'none';
+  const nome  = document.getElementById('fNome').value.trim();
+  const senha = document.getElementById('fSenha').value;
+  const admin = document.getElementById('fAdmin').checked;
+  const ativo = document.getElementById('fAtivo').checked;
+
+  if (!nome) { errEl.textContent = 'Nome obrigatório'; errEl.style.display = ''; return; }
+
+  try {
+    if (editandoId) {
+      const payload = { nome, is_admin: admin, ativo };
+      if (senha) payload.senha = senha;
+      await apiEditarUsuario(editandoId, payload);
+    } else {
+      if (!senha) { errEl.textContent = 'Senha obrigatória'; errEl.style.display = ''; return; }
+      await apiCriarUsuario({ nome, senha, is_admin: admin });
+    }
+    fecharModal();
+    await Promise.all([carregarUsuarios(), carregarStats()]);
+  } catch(e) {
+    errEl.textContent = e.message;
+    errEl.style.display = '';
+  }
+}
+
+// ── Utils ─────────────────────────────────────────────────────────────
+function formatarData(iso) {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleString('pt-BR', { dateStyle:'short', timeStyle:'short' });
+}
+</script>
+</body>
+</html>
