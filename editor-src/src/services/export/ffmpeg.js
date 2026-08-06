@@ -18,10 +18,18 @@ import { probeFile } from '../probe'
 //  1) LOCAL — /vendor/ffmpeg hospedado pelo próprio app (ver Dockerfile);
 //     funciona mesmo com a rede da empresa bloqueando CDNs.
 //  2/3) CDNs públicos como fallback (dev local sem o vendor).
+// O @ffmpeg/ffmpeg 0.12 cria o worker com { type: "module" }. Dentro de um
+// module worker nao existe importScripts(), entao ele cai no fallback
+// `await import(coreURL)` — que exige um core ESM. O core UMD falha ali com
+// "failed to import ffmpeg-core.js". Por isso a fonte principal e
+// /vendor/ffmpeg-esm, e nao /vendor/ffmpeg (UMD).
+//
+// `blob: false` importa: com core ESM, converter pra blob URL quebra o
+// import.meta.url interno do core. A URL real precisa ser passada direto.
 const CORES = [
-  '/vendor/ffmpeg',
-  'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd',
-  'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd',
+  { base: '/vendor/ffmpeg-esm', blob: false },
+  { base: '/vendor/ffmpeg',     blob: true  },
+  { base: 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm', blob: false },
 ]
 
 // Converte qualquer coisa lancada (Error, ErrorEvent de Worker, string,
@@ -57,14 +65,18 @@ export async function ensureFFmpeg(onStatus) {
     _loading = (async () => {
       onStatus && onStatus('Baixando motor de vídeo (primeira vez, ~31 MB)…')
       const falhas = []
-      for (const base of CORES) {
+      for (const { base, blob } of CORES) {
         try {
-          onStatus && onStatus(`Carregando motor de vídeo de ${base}…`)
+          onStatus && onStatus(`Carregando motor de vídeo…`)
           const ff = new FFmpeg()
           ff.on('log', ({ message }) => console.debug('[ffmpeg]', message))
           await ff.load({
-            coreURL: await _blobURLVerificado(`${base}/ffmpeg-core.js`, 'text/javascript'),
-            wasmURL: await _blobURLVerificado(`${base}/ffmpeg-core.wasm`, 'application/wasm'),
+            coreURL: blob
+              ? await _blobURLVerificado(`${base}/ffmpeg-core.js`, 'text/javascript')
+              : `${base}/ffmpeg-core.js`,
+            wasmURL: blob
+              ? await _blobURLVerificado(`${base}/ffmpeg-core.wasm`, 'application/wasm')
+              : `${base}/ffmpeg-core.wasm`,
           })
           _ffmpeg = ff
           return ff
