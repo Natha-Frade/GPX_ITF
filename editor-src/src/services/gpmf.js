@@ -7,8 +7,107 @@
 // Lê o arquivo em chunks de 2MB via slice(): nunca carrega o vídeo
 // inteiro na memória — funciona com arquivos de vários GB.
 
+import MP4Box from 'mp4box'
+
 const GPMF_CHUNK = 2 * 1024 * 1024
 const GPMF_OVERLAP = 64 * 1024
+
+// ---------------------------------------------------------------------------
+// Leitura direcionada da trilha de metadados (gpmd)
+//
+// O GPS da GoPro nao esta espalhado pelo arquivo: fica numa trilha propria
+// ('GoPro MET', codec gpmd) de poucos MB. Varrer o MP4 inteiro atras dos
+// marcadores custava ~1.500 iteracoes de busca byte a byte num video de 4 min
+// em 4K — minutos de CPU travando a thread principal (e, de quebra, deixando
+// o <video> preto por falta de tempo pra decodificar).
+//
+// Aqui pedimos ao mp4box os offsets exatos das amostras dessa trilha e lemos
+// so esses trechos. Passa de gigabytes para poucos megabytes.
+// ---------------------------------------------------------------------------
+
+async function lerRange(file, ini, fim) {
+  return new Uint8Array(await file.slice(ini, fim).arrayBuffer())
+}
+
+// Varre os boxes de nivel superior sem carregar o arquivo.
+async function boxesDoTopo(file) {
+  const tops = []
+  let pos = 0
+  while (pos + 8 <= file.size) {
+    const cab = await lerRange(file, pos, Math.min(pos + 16, file.size))
+    const dv = new DataView(cab.buffer)
+    let tam = dv.getUint32(0)
+    const tipo = String.fromCharCode(cab[4], cab[5], cab[6], cab[7])
+    if (tam === 1) tam = Number(dv.getBigUint64(8))
+    else if (tam === 0) tam = file.size - pos
+    if (tam < 8) break
+    tops.push({ type: tipo, start: pos, size: tam })
+    pos += tam
+  }
+  return tops
+}
+
+// Devolve um Uint8Array so com os bytes da trilha gpmd, ou null se nao achar.
+async function lerTrilhaGpmd(file, onProgress) {
+  const tops = await boxesDoTopo(file)
+  const ftypBox = tops.find((b) => b.type === 'ftyp')
+  const moovBox = tops.find((b) => b.type === 'moov')
+  if (!moovBox) return null
+
+  const ftyp = ftypBox ? await lerRange(file, ftypBox.start, ftypBox.start + ftypBox.size) : null
+  const moov = await lerRange(file, moovBox.start, moovBox.start + moovBox.size)
+
+  const mp4 = MP4Box.createFile()
+  const info = await new Promise((ok, falhou) => {
+    mp4.onError = (e) => falhou(new Error('mp4box: ' + e))
+    mp4.onReady = ok
+    if (ftyp) {
+      const b = ftyp.buffer.slice(ftyp.byteOffset, ftyp.byteOffset + ftyp.byteLength)
+      b.fileStart = ftypBox.start
+      mp4.appendBuffer(b)
+    }
+    const b2 = moov.buffer.slice(moov.byteOffset, moov.byteOffset + moov.byteLength)
+    b2.fileStart = moovBox.start
+    mp4.appendBuffer(b2)
+    mp4.flush()
+  })
+
+  // A trilha do GPMF aparece como codec 'gpmd'; algumas firmwares so
+  // identificam pelo nome do handler ('GoPro MET').
+  const trilha = (info.tracks || []).find(
+    (t) => t.codec === 'gpmd' || /GoPro MET/i.test(t.name || '')
+  )
+  if (!trilha) return null
+
+  const amostras = mp4.getTrackSamplesInfo(trilha.id)
+  if (!amostras || !amostras.length) return null
+
+  // Amostras consecutivas costumam ser contiguas no arquivo: juntamos em
+  // faixas pra fazer poucas leituras grandes em vez de milhares pequenas.
+  const faixas = []
+  for (const a of amostras) {
+    const ult = faixas[faixas.length - 1]
+    if (ult && a.offset === ult.fim) ult.fim += a.size
+    else faixas.push({ ini: a.offset, fim: a.offset + a.size })
+  }
+
+  const partes = []
+  let lidos = 0
+  const total = faixas.reduce((acc, f) => acc + (f.fim - f.ini), 0)
+  for (const f of faixas) {
+    partes.push(await lerRange(file, f.ini, f.fim))
+    lidos += f.fim - f.ini
+    onProgress && onProgress(Math.round((lidos / total) * 100), 'Lendo GPS do vídeo…')
+  }
+
+  const out = new Uint8Array(total)
+  let p = 0
+  for (const parte of partes) {
+    out.set(parte, p)
+    p += parte.length
+  }
+  return out
+}
 
 // file: File local. Retorna { points:[{t,lat,lon,ele,spd}], device, synthetic:false }
 // duration: duração do vídeo (s), usada pra distribuir pontos sem timestamp.
@@ -43,7 +142,25 @@ function toRelative(points, duration) {
   }))
 }
 
-async function extractGPMF(file, onProgress) {
+async function extractGPMF(arquivo, onProgress) {
+  // Caminho rapido: le so a trilha gpmd. Se o MP4 nao tiver essa trilha
+  // (ou o mp4box nao conseguir lê-la), cai na varredura completa antiga.
+  let file = arquivo
+  try {
+    const gpmd = await lerTrilhaGpmd(arquivo, onProgress)
+    if (gpmd && gpmd.length) {
+      file = new Blob([gpmd])
+      console.debug(
+        `[gpmf] trilha gpmd: ${(gpmd.length / 1048576).toFixed(1)} MB ` +
+          `(arquivo tem ${(arquivo.size / 1048576).toFixed(0)} MB)`
+      )
+    } else {
+      console.warn('[gpmf] trilha gpmd não encontrada — varrendo o arquivo inteiro')
+    }
+  } catch (e) {
+    console.warn('[gpmf] leitura direcionada falhou, varrendo tudo:', e)
+  }
+
   const size = file.size
   let offset = 0
   let scal = 10000000
