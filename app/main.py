@@ -37,16 +37,26 @@ seed_admin()
 app = FastAPI(title="GPX IMTRAFF", docs_url="/api/docs")
 
 # ── Cross-Origin Isolation p/ o ffmpeg.wasm MULTI-THREAD ──────────────
-#  O core multi-thread (bem mais rápido no re-encode) precisa de
-#  SharedArrayBuffer, que só existe quando a página é "cross-origin
-#  isolated". Isso exige os headers COOP + COEP. Usamos COEP
-#  "credentialless" (em vez de "require-corp") para NÃO quebrar os tiles
-#  do mapa (OpenStreetMap) e outros recursos externos sem CORS.
+#  O core MULTI-THREAD precisa de SharedArrayBuffer, que exige a página
+#  "cross-origin isolated" (headers COOP + COEP).
+#
+#  ATENÇÃO: o core que usamos hoje é o SINGLE-THREAD ESM
+#  (/vendor/ffmpeg-esm), que NÃO precisa de SharedArrayBuffer. Nesse
+#  cenário o COEP só atrapalha: em Chrome recente ele barra o carregamento
+#  do worker do ffmpeg, e a falha chega sem .message — o famoso "undefined".
+#
+#  Por isso os headers agora são OPT-IN, via variável de ambiente:
+#      CROSS_ORIGIN_ISOLATION=1
+#  Só ligue se voltar a usar o core multi-thread (/vendor/ffmpeg-mt).
+_ISOLAR = os.getenv("CROSS_ORIGIN_ISOLATION", "").strip() in ("1", "true", "True")
+
+
 @app.middleware("http")
 async def _coop_coep(request, call_next):
     resp = await call_next(request)
-    resp.headers["Cross-Origin-Opener-Policy"] = "same-origin"
-    resp.headers["Cross-Origin-Embedder-Policy"] = "credentialless"
+    if _ISOLAR:
+        resp.headers["Cross-Origin-Opener-Policy"] = "same-origin"
+        resp.headers["Cross-Origin-Embedder-Policy"] = "credentialless"
 
     # ── CACHE ────────────────────────────────────────────────────────
     #  /vendor: bibliotecas de versão fixa (leaflet 1.9.4, ffmpeg core...).
