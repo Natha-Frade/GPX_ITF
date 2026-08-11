@@ -298,7 +298,7 @@
         </button>
         <button id="sendCutsMergeBtn" class="btn btn-secondary" onclick="sendCutsToMerge()"
                 style="width:100%;margin-top:6px;display:none;">
-            Enviar cortes para UNIR
+          📤 Enviar cortes para UNIR
         </button>
         <div class="hint-text" id="sendCutsHint" style="margin-top:6px;display:none;">
           Manda os GPX dos cortes direto pra aba UNIR (até 4 slots), sem precisar baixar antes.
@@ -816,7 +816,7 @@
         </button>
         
         <button class="btn btn-secondary" onclick="exportVideoCutsCompleto()" style="width:100%;margin-top:6px;">
-          Exportar GPX + Video
+          Exportar GPX + MP4 de tudo
         </button>
         <div style="display:flex;gap:6px;margin-top:10px;">
           <button class="btn btn-secondary" onclick="sendVideoCutsToMerge()" style="flex:1;">
@@ -835,78 +835,27 @@
 
     <div class="tab-panel" id="panel-gopro">
       <div class="panel-card">
-        <h3 style="margin-top:0;">Conversor vídeos GoPro em GPX</h3>
+        <h3 style="margin-top:0;">Conversor vídeos para GPX</h3>
 
-        <div id="batchStatus" class="batch-status">Verificando exiftool...</div>
-        <button class="btn btn-primary" id="batchInstall" onclick="batchInstall()"
-                style="display:none;width:100%;margin-top:8px;">
-          Baixar e instalar exiftool automaticamente</button>
+        <!--<div class="batch-status ok" style="font-size:0.68rem;">
+          Tudo roda <b>no seu computador</b> — os vídeos não são enviados para
+          lugar nenhum. Sem limite de tamanho e sem timeout.
+        </div>-->
 
-        <!-- Seletor de modo -->
-        <div class="batch-modes" style="margin-top:12px;">
-          <!--  <button class="batch-mode" data-mode="browser" onclick="batchMode('browser')">Navegador ⚡</button> -->
-          <button class="batch-mode active" data-mode="pasta" onclick="batchMode('pasta')">Pasta local</button>
-          <button class="batch-mode" data-mode="zip" onclick="batchMode('zip')">Arrastar ZIP</button>
-          <!--  <button class="batch-mode" data-mode="drive" onclick="batchMode('drive')">Link do Drive</button> -->
+        <div id="batchDrop" class="batch-drop" style="margin-top:10px;">
+          Arraste aqui os <b>vídeos</b> (.mp4 / .mov), uma <b>pasta</b> ou um <b>.zip</b><br>
+          <span style="font-size:0.68rem;color:var(--muted);">
+            Anexar arquivo(s) aqui! </span>
+          <input type="file" id="batchFileInput" multiple
+                 accept=".zip,.mp4,.mov,video/mp4,video/quicktime" style="display:none">
         </div>
 
-        <!-- MODO NAVEGADOR (sem upload — funciona na nuvem e com pasta do SharePoint sincronizada) -->
-        <div class="batch-pane" id="pane-browser" style="display:none;">
-          <div class="batch-status ok" style="font-size:0.68rem;">
-            Os vídeos são lidos direto do seu computador, <b>sem upload</b> — só o GPX é gerado.
-            Para pastas do <b>SharePoint</b>: sincronize a biblioteca pelo OneDrive e selecione a pasta sincronizada aqui.
-          </div>
-          <button class="btn" onclick="batchBrowserPick()" style="width:100%;margin:8px 0;">
-            📁 Selecionar pasta com os vídeos</button>
-          <div id="browserInfo" style="font-size:0.7rem;color:var(--muted);margin:6px 0;"></div>
-          <div id="browserList" class="batch-list">
-            <div class="batch-empty">Selecione a pasta (inclui subpastas automaticamente).</div>
-          </div>
-        </div>
+        <button class="btn" onclick="batchEscolherPasta()" style="width:100%;margin-top:8px;">
+          Escolher pasta com os vídeos (inclui subpastas)</button>
 
-        <!-- MODO PASTA -->
-        <div class="batch-pane" id="pane-pasta">
-          <label style="font-size:0.7rem;color:var(--muted);">Caminho da pasta:</label>
-          <input type="text" id="batchPasta" placeholder="C:\\Users\\voce\\Downloads\\EXTERNO"
-                 style="width:100%;margin:4px 0 8px;">
-          <label style="display:flex;align-items:center;gap:6px;font-size:0.72rem;color:var(--muted);">
-            <input type="checkbox" id="batchRec"> Incluir subpastas
-          </label>
-          <button class="btn" onclick="batchListar()" style="width:100%;margin:8px 0;">
-            Listar vídeos da pasta</button>
-          <div id="batchInfo" style="font-size:0.7rem;color:var(--muted);margin:6px 0;"></div>
-          <div id="batchList" class="batch-list">
-            <div class="batch-empty">Informe a pasta e clique em "Listar vídeos".</div>
-          </div>
-        </div>
-
-        <!-- MODO ZIP -->
-        <div class="batch-pane" id="pane-zip" style="display:none;">
-          <div id="batchDrop" class="batch-drop">
-            <div style="font-size:1.6rem;">📦</div>
-            Arraste aqui um <b>.zip</b> com os vídeos<br>
-            <span style="font-size:0.68rem;color:var(--muted);">ou clique para escolher</span>
-            <input type="file" id="batchZipInput" accept=".zip" style="display:none">
-          </div>
-          <div id="batchZipInfo" style="font-size:0.7rem;color:var(--muted);margin-top:6px;"></div>
-          <div class="batch-status ok" style="font-size:0.68rem;margin-top:6px;">
-            O .zip é extraído e convertido <b>no seu navegador</b> — nada é enviado ao servidor
-            (funciona com zips grandes, sem timeout). Sai um .zip com os .gpx, preservando subpastas.
-          </div>
-        </div>
-
-        <!-- MODO DRIVE -->
-        <div class="batch-pane" id="pane-drive" style="display:none;">
-          <label style="font-size:0.7rem;color:var(--muted);">Link de PASTA do Drive ou de arquivo .zip (públicos):</label>
-          <input type="text" id="batchDrive" placeholder="https://drive.google.com/drive/folders/... ou link do .zip"
-                 style="width:100%;margin:4px 0 8px;">
-          <div class="batch-status warn" style="font-size:0.68rem;">
-            Aceita <b>pasta do Drive</b> (baixa os vídeos e converte no servidor) ou
-            <b>arquivo .zip único</b>. Precisa estar <b>público</b> ("qualquer pessoa com o link") —
-            pastas corporativas que exigem login não funcionam. Os vídeos passam pelo servidor:
-            pastas muito grandes podem estourar o tempo do Railway — nesse caso use
-            <b>Navegador</b> (pasta sincronizada) ou <b>Arrastar ZIP</b>, que rodam no seu PC.
-          </div>
+        <div id="batchZipInfo" style="font-size:0.7rem;color:var(--muted);margin:8px 0 4px;"></div>
+        <div id="batchList" class="batch-list">
+          <div class="batch-empty">Nada selecionado ainda.</div>
         </div>
 
         <label style="display:flex;align-items:center;gap:6px;font-size:0.72rem;color:var(--muted);margin:10px 0 4px;">
@@ -1078,8 +1027,8 @@
 <script src="js/search.js?v=20260810a"></script>
 <script src="js/video.js?v=20260810a"></script>
 <script src="js/gpmf.js?v=20260810a"></script>
-<script src="js/batch-browser.js?v=20260810a"></script>
-<script src="js/batch.js?v=20260810a"></script>
+<script src="js/batch-browser.js?v=20260811b"></script>
+<script src="js/batch.js?v=20260811b"></script>
 <script src="js/video-export.js?v=20260810a"></script>
 <!-- ══════════════════════════════════════════════════════════════════
      TELA DE LOGIN

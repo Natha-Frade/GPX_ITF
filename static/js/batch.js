@@ -1,291 +1,248 @@
 // ══════════════════════════════════════════════════════════════════════
-//  batch.js — Conversor GoPro → GPX (backend exiftool local)
+//  batch.js — Conversor GoPro → GPX
 //
-//  3 modos de entrada:
-//   • Pasta local  -> POST /api/gopro/converter    { pasta, recursivo, um_hz }
-//   • Arrastar ZIP -> POST /api/gopro/converter-zip (multipart)
-//   • Link Drive   -> POST /api/gopro/converter-drive { link, um_hz }
+//  Uma entrada só, 100% no NAVEGADOR (gpmf.js + JSZip). Nada é enviado ao
+//  servidor: sem upload, sem limite de tamanho, sem timeout.
 //
-//  Se o exiftool faltar, oferece instalação automática (POST /api/gopro/instalar).
+//  O usuário pode:
+//   • arrastar vídeos soltos (.mp4/.mov), pastas ou .zip — misturados
+//   • clicar para escolher arquivos
+//   • clicar para escolher uma PASTA inteira (inclui subpastas)
+//
+//  Por que NÃO existe mais o campo "caminho da pasta": aquele modo mandava
+//  o texto "C:\Users\..." pro backend, que rodava os.path.isdir() no
+//  SERVIDOR. Na nuvem o servidor é um container Linux e esse caminho nunca
+//  existe — dava 400 sempre. Navegador nenhum entrega caminho de disco.
+//  A forma correta de "apontar a pasta" é o seletor de pasta abaixo.
 // ══════════════════════════════════════════════════════════════════════
 
 (function () {
   'use strict';
 
-  let _rodando = false;
-  let _modo = 'pasta';
-  let _zipFile = null;
+  const EH_VIDEO = (n) => /\.(mp4|mov)$/i.test(n);
+  const EH_ZIP   = (n) => /\.zip$/i.test(n);
 
-  // ── STATUS / INSTALAÇÃO ──────────────────────────────────────────────
-  async function batchCheckStatus() {
-    const el = document.getElementById('batchStatus');
-    const btnInst = document.getElementById('batchInstall');
-    if (!el) return;
-    el.textContent = 'Verificando exiftool no servidor...';
-    el.className = 'batch-status';
-    if (btnInst) btnInst.style.display = 'none';
-    try {
-      const r = await fetch('/api/gopro/status', {
-        headers: { 'Authorization': 'Bearer ' + apiToken() },
-      });
-      const j = await r.json();
-      if (j.disponivel) {
-        el.textContent = `✓ exiftool ${j.versao} pronto (modo rápido, local).`;
-        el.className = 'batch-status ok';
+  // Entradas selecionadas: { tipo: 'zip'|'video', file: File, rel: string }
+  let _entradas = [];
+
+  // ── Coleta ───────────────────────────────────────────────────────────
+  function _add(files) {
+    let ignorados = 0;
+    for (const f of files) {
+      const rel = f._rel || f.webkitRelativePath || f.name;
+      if (EH_ZIP(f.name))        _entradas.push({ tipo: 'zip',   file: f, rel });
+      else if (EH_VIDEO(f.name)) _entradas.push({ tipo: 'video', file: f, rel });
+      else ignorados++;
+    }
+    _render(ignorados);
+  }
+
+  function _render(ignorados) {
+    const info  = document.getElementById('batchZipInfo');
+    const lista = document.getElementById('batchList');
+
+    if (info) {
+      if (!_entradas.length) {
+        info.innerHTML = ignorados
+          ? 'Nenhum arquivo aceito — use .mp4, .mov ou .zip.'
+          : '';
       } else {
-        el.innerHTML = '⚠ exiftool não encontrado no servidor. ' +
-          'Clique abaixo para instalar automaticamente.';
-        el.className = 'batch-status warn';
-        if (btnInst) btnInst.style.display = '';
+        const zips = _entradas.filter(e => e.tipo === 'zip').length;
+        const vids = _entradas.length - zips;
+        const mb = _entradas.reduce((s, e) => s + e.file.size, 0) / 1048576;
+        const partes = [];
+        if (vids) partes.push(vids + ' vídeo(s)');
+        if (zips) partes.push(zips + ' zip(s)');
+        info.innerHTML = partes.join(' + ') + ' • ' + mb.toFixed(0) + ' MB' +
+          (ignorados ? ' • ' + ignorados + ' ignorado(s)' : '') +
+          ' — <a href="#" onclick="batchLimpar();return false;" style="color:var(--muted);">limpar</a>';
       }
-    } catch (e) {
-      el.textContent = 'Não consegui verificar o exiftool: ' + e.message;
-      el.className = 'batch-status warn';
+    }
+
+    if (lista) {
+      if (!_entradas.length) {
+        lista.innerHTML = '<div class="batch-empty">Nada selecionado ainda.</div>';
+      } else {
+        lista.innerHTML = _entradas.map(e => `
+          <div class="batch-row">
+            <span class="batch-name" title="${_esc(e.rel)}">${e.tipo === 'zip' ? '📦 ' : ''}${_esc(e.rel)}</span>
+            <span class="batch-size">${(e.file.size / 1048576).toFixed(0)} MB</span>
+          </div>`).join('');
+      }
     }
   }
 
-  async function batchInstall() {
-    const el = document.getElementById('batchStatus');
-    const btn = document.getElementById('batchInstall');
-    if (btn) { btn.disabled = true; btn.textContent = 'Baixando e instalando exiftool...'; }
-    if (el) { el.textContent = 'Baixando exiftool da fonte oficial... aguarde.'; el.className = 'batch-status'; }
-    try {
-      const r = await fetch('/api/gopro/instalar', {
-        method: 'POST',
-        headers: { 'Authorization': 'Bearer ' + apiToken() },
-      });
-      if (!r.ok) {
-        const err = await r.json().catch(() => ({ detail: r.statusText }));
-        throw new Error(err.detail || 'Falha na instalação');
-      }
-      const j = await r.json();
-      if (el) {
-        el.textContent = `✓ exiftool ${j.versao} instalado! Iniciando conversão...`;
-        el.className = 'batch-status ok';
-      }
-      if (btn) btn.style.display = 'none';
-      // Avisa e já começa a conversão automaticamente
-      setTimeout(() => batchStart(), 800);
-    } catch (e) {
-      if (el) { el.innerHTML = 'Não foi possível instalar automaticamente: ' + _esc(e.message) +
-        '<br>Baixe manualmente em exiftool.org e coloque na pasta do servidor.';
-        el.className = 'batch-status warn'; }
-      if (btn) { btn.disabled = false; btn.textContent = 'Tentar instalar novamente'; }
-    }
+  function batchLimpar() {
+    _entradas = [];
+    const inp = document.getElementById('batchFileInput');
+    if (inp) inp.value = '';
+    _render(0);
   }
 
-  // ── SELETOR DE MODO ──────────────────────────────────────────────────
-  function batchMode(m) {
-    _modo = m;
-    document.querySelectorAll('.batch-mode').forEach(b =>
-      b.classList.toggle('active', b.dataset.mode === m));
-    ['pasta', 'zip', 'drive', 'browser'].forEach(id => {
-      const pane = document.getElementById('pane-' + id);
-      if (pane) pane.style.display = (id === m) ? '' : 'none';
-    });
-  }
-
-  // ── MODO PASTA: listar ───────────────────────────────────────────────
-  async function batchListar() {
-    const pasta = document.getElementById('batchPasta')?.value.trim();
-    const rec = document.getElementById('batchRec')?.checked;
-    if (!pasta) { alert('Informe o caminho da pasta.'); return; }
-    const box = document.getElementById('batchList');
-    box.innerHTML = '<div class="batch-empty">Listando...</div>';
-    try {
-      const r = await fetch('/api/gopro/listar', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + apiToken() },
-        body: JSON.stringify({ pasta, recursivo: !!rec }),
-      });
-      if (!r.ok) {
-        const err = await r.json().catch(() => ({ detail: r.statusText }));
-        throw new Error(err.detail || 'Erro ao listar');
-      }
-      const j = await r.json();
-      _render(j.videos);
-    } catch (e) {
-      box.innerHTML = `<div class="batch-empty" style="color:#d05c5c">${_esc(e.message)}</div>`;
-    }
-  }
-
-  function _render(videos) {
-    const box = document.getElementById('batchList');
-    const info = document.getElementById('batchInfo');
-    if (!videos || !videos.length) {
-      box.innerHTML = '<div class="batch-empty">Nenhum vídeo encontrado.</div>';
-      if (info) info.textContent = '';
-      return;
-    }
-    const totMB = videos.reduce((s, v) => s + (v.tamanho_mb || 0), 0);
-    if (info) info.textContent = `${videos.length} vídeo(s) • ${totMB.toFixed(0)} MB • lidos pelo exiftool`;
-    box.innerHTML = videos.map(v => `
-      <div class="batch-row">
-        <span class="batch-name" title="${_esc(v.rel)}">${_esc(v.rel)}</span>
-        <span class="batch-size">${v.tamanho_mb} MB</span>
-      </div>`).join('');
-  }
-
-  // ── MODO ZIP: drag & drop ────────────────────────────────────────────
+  // ── Arrastar (aceita arquivo e pasta) ────────────────────────────────
   function _initDrop() {
-    const drop = document.getElementById('batchDrop');
-    const input = document.getElementById('batchZipInput');
+    const drop  = document.getElementById('batchDrop');
+    const input = document.getElementById('batchFileInput');
     if (!drop || drop._init) return;
     drop._init = true;
 
-    drop.addEventListener('click', () => input.click());
-    input.addEventListener('change', () => {
-      if (input.files.length) _setZip(input.files[0]);
-    });
+    if (input) {
+      input.multiple = true;
+      input.accept = '.zip,.mp4,.mov,video/mp4,video/quicktime';
+      input.addEventListener('change', () => {
+        if (input.files.length) _add([...input.files]);
+      });
+    }
+
+    drop.addEventListener('click', () => input && input.click());
     ['dragenter', 'dragover'].forEach(ev =>
       drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('drag'); }));
     ['dragleave', 'drop'].forEach(ev =>
       drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('drag'); }));
-    drop.addEventListener('drop', e => {
-      const f = e.dataTransfer.files[0];
-      if (f) _setZip(f);
+
+    drop.addEventListener('drop', async (e) => {
+      e.preventDefault();
+      const items = e.dataTransfer.items;
+      // Com .items dá pra aceitar PASTA arrastada (webkitGetAsEntry).
+      if (items && items.length && items[0].webkitGetAsEntry) {
+        const raizes = [];
+        for (const it of items) {
+          const en = it.webkitGetAsEntry();
+          if (en) raizes.push(en);
+        }
+        const achados = [];
+        for (const en of raizes) await _percorrer(en, '', achados);
+        _add(achados);
+      } else if (e.dataTransfer.files.length) {
+        _add([...e.dataTransfer.files]);
+      }
     });
   }
 
-  function _setZip(f) {
-    if (!f.name.toLowerCase().endsWith('.zip')) {
-      alert('Arraste um arquivo .zip.');
+  async function _percorrer(entry, prefixo, saida) {
+    const rel = prefixo ? prefixo + '/' + entry.name : entry.name;
+    if (entry.isFile) {
+      if (!EH_VIDEO(entry.name) && !EH_ZIP(entry.name)) return;
+      const file = await new Promise((res, rej) => entry.file(res, rej));
+      file._rel = rel;
+      saida.push(file);
       return;
     }
-    _zipFile = f;
-    const info = document.getElementById('batchZipInfo');
-    if (info) info.textContent = `Selecionado: ${f.name} (${(f.size / 1048576).toFixed(0)} MB)`;
+    if (entry.isDirectory) {
+      const reader = entry.createReader();
+      // readEntries devolve no máximo ~100 por chamada: repetir até vir
+      // vazio, senão pasta grande é lida pela metade sem avisar.
+      for (;;) {
+        const lote = await new Promise((res, rej) => reader.readEntries(res, rej));
+        if (!lote.length) break;
+        for (const sub of lote) await _percorrer(sub, rel, saida);
+      }
+    }
   }
 
-  // ── ZIP no navegador: extrai 1 vídeo por vez e converte com gpmf.js ──
-  async function _converterZipNoNavegador() {
-    if (typeof JSZip === 'undefined' || typeof window.batchBrowserRunLista !== 'function') {
-      alert('JSZip / batch-browser.js não carregados.'); return;
-    }
-    const lbl = document.getElementById('batchProgLbl');
-    if (lbl) lbl.textContent = 'Lendo o índice do .zip...';
-    let zip;
+  // ── Escolher pasta pelo seletor do navegador ─────────────────────────
+  async function batchEscolherPasta() {
+    const achados = [];
     try {
-      zip = await JSZip.loadAsync(_zipFile);
+      if (window.showDirectoryPicker) {
+        const dir = await window.showDirectoryPicker();
+        await _varrerHandle(dir, '', achados);
+      } else {
+        // Firefox/Safari: <input webkitdirectory> ainda funciona.
+        await new Promise((resolve) => {
+          const inp = document.createElement('input');
+          inp.type = 'file';
+          inp.webkitdirectory = true;
+          inp.onchange = () => { achados.push(...inp.files); resolve(); };
+          inp.click();
+        });
+      }
     } catch (e) {
-      if (lbl) lbl.textContent = '';
-      alert('Não consegui abrir o .zip: ' + e.message); return;
+      if (e && e.name === 'AbortError') return;   // usuário cancelou
+      alert('Não consegui abrir a pasta: ' + e.message);
+      return;
     }
+    _add(achados);
+  }
+
+  async function _varrerHandle(dirHandle, prefixo, saida) {
+    for await (const [nome, handle] of dirHandle.entries()) {
+      const rel = prefixo ? prefixo + '/' + nome : nome;
+      if (handle.kind === 'directory') {
+        await _varrerHandle(handle, rel, saida);
+      } else if (EH_VIDEO(nome) || EH_ZIP(nome)) {
+        const file = await handle.getFile();
+        file._rel = rel;
+        saida.push(file);
+      }
+    }
+  }
+
+  // ── Converter ────────────────────────────────────────────────────────
+  // Monta a lista PREGUIÇOSA: { rel, getFile: async () => File }. Vídeo
+  // dentro de .zip só é descompactado na hora, um por vez — não estoura a
+  // memória com o zip inteiro descompactado.
+  async function batchStart() {
+    if (!_entradas.length) {
+      alert('Arraste os vídeos, uma pasta ou um .zip — ou use "Escolher pasta".');
+      return;
+    }
+    if (typeof window.batchBrowserRunLista !== 'function') {
+      alert('batch-browser.js não carregado — recarregue com Ctrl+Shift+R.');
+      return;
+    }
+
+    const lbl = document.getElementById('batchProgLbl');
     const lista = [];
-    zip.forEach((rel, entry) => {
-      if (entry.dir) return;
-      if (!/\.(mp4|mov)$/i.test(rel)) return;
-      if (/(^|\/)__MACOSX\//.test(rel)) return;
-      lista.push({
-        rel,
-        getFile: async () => {
-          const blob = await entry.async('blob');
-          const nome = rel.split('/').pop();
-          return new File([blob], nome, { type: 'video/mp4' });
-        },
+
+    for (const ent of _entradas) {
+      if (ent.tipo === 'video') {
+        lista.push({ rel: ent.rel, getFile: async () => ent.file });
+        continue;
+      }
+      if (typeof JSZip === 'undefined') { alert('JSZip não carregado.'); return; }
+      if (lbl) lbl.textContent = 'Lendo o índice de ' + ent.file.name + '...';
+      let zip;
+      try {
+        zip = await JSZip.loadAsync(ent.file);
+      } catch (e) {
+        if (lbl) lbl.textContent = '';
+        alert('Não consegui abrir "' + ent.file.name + '": ' + e.message +
+          '\n\nSe veio do Drive/OneDrive, confirme que o download terminou e ' +
+          'que o arquivo não é um marcador "sob demanda". Zip muito grande ' +
+          'pode não caber na memória — nesse caso extraia e arraste os vídeos.');
+        return;
+      }
+      zip.forEach((rel, entry) => {
+        if (entry.dir) return;
+        if (!EH_VIDEO(rel)) return;
+        if (/(^|\/)__MACOSX\//.test(rel)) return;
+        lista.push({
+          rel,
+          getFile: async () => {
+            const blob = await entry.async('blob');
+            return new File([blob], rel.split('/').pop(), { type: 'video/mp4' });
+          },
+        });
       });
-    });
+    }
+
     if (!lista.length) {
       if (lbl) lbl.textContent = '';
-      alert('Nenhum vídeo (.mp4/.mov) dentro do .zip.'); return;
+      alert('Nenhum vídeo (.mp4/.mov) encontrado no que foi selecionado.');
+      return;
     }
     lista.sort((a, b) => a.rel.localeCompare(b.rel));
     return window.batchBrowserRunLista(lista);
-  }
-
-  // ── CONVERTER (roteia pelo modo) ─────────────────────────────────────
-  async function batchStart() {
-    if (_rodando) return;
-
-    // Modo navegador: tudo roda no cliente (gpmf.js), sem servidor.
-    if (_modo === 'browser') {
-      if (window.batchBrowserStart) return window.batchBrowserStart();
-      alert('batch-browser.js não carregado.');
-      return;
-    }
-
-    const um1hz = document.getElementById('batch1hz')?.checked;
-
-    let req;
-    if (_modo === 'pasta') {
-      const pasta = document.getElementById('batchPasta')?.value.trim();
-      const rec = document.getElementById('batchRec')?.checked;
-      if (!pasta) { alert('Informe o caminho da pasta.'); return; }
-      req = {
-        url: '/api/gopro/converter',
-        opts: {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + apiToken() },
-          body: JSON.stringify({ pasta, recursivo: !!rec, um_hz: !!um1hz }),
-        },
-      };
-    } else if (_modo === 'zip') {
-      // ZIP processado 100% no NAVEGADOR: nada é enviado ao servidor.
-      // (o upload de centenas de MB pro Railway caía/estourava timeout —
-      //  era o motivo do "gerar GPX via zip" não funcionar)
-      if (!_zipFile) { alert('Arraste um arquivo .zip primeiro.'); return; }
-      return _converterZipNoNavegador();
-    } else { // drive
-      const link = document.getElementById('batchDrive')?.value.trim();
-      if (!link) { alert('Cole o link do Drive.'); return; }
-      req = {
-        url: '/api/gopro/converter-drive',
-        opts: {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + apiToken() },
-          body: JSON.stringify({ link, um_hz: !!um1hz }),
-        },
-      };
-    }
-
-    _rodando = true;
-    const go = document.getElementById('batchStart');
-    const lbl = document.getElementById('batchProgLbl');
-    const fill = document.getElementById('batchProgFill');
-    if (go) { go.disabled = true; go.textContent = 'CONVERTENDO...'; }
-    if (fill) fill.style.width = '30%';
-    if (lbl) lbl.textContent = 'Processando no servidor (exiftool)... aguarde.';
-
-    try {
-      const r = await fetch(req.url, req.opts);
-      if (!r.ok) {
-        const err = await r.json().catch(() => ({ detail: r.statusText }));
-        throw new Error(err.detail || 'Erro na conversão');
-      }
-      const ok = r.headers.get('X-Convertidos') || '?';
-      const sem = r.headers.get('X-Sem-GPS') || '0';
-      if (fill) fill.style.width = '90%';
-      if (lbl) lbl.textContent = 'Baixando ZIP...';
-
-      const blob = await r.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      const ts = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
-      a.href = url; a.download = `gpx_gopro_${ts}.zip`;
-      document.body.appendChild(a); a.click(); document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(url), 4000);
-
-      if (fill) fill.style.width = '100%';
-      if (lbl) lbl.textContent = `Concluído: ${ok} GPX gerado(s), ${sem} sem GPS. ZIP baixado.`;
-    } catch (e) {
-      if (lbl) lbl.textContent = 'Erro: ' + e.message;
-      if (fill) fill.style.width = '0%';
-    } finally {
-      _rodando = false;
-      if (go) { go.disabled = false; go.textContent = 'CONVERTER TUDO'; }
-    }
   }
 
   function _esc(s) {
     return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
 
-  // Inicializa drag&drop quando a aba abre
-  function batchInit() { _initDrop(); }
-
-  window.batchCheckStatus = function () { batchCheckStatus(); batchInit(); };
-  window.batchInstall = batchInstall;
-  window.batchMode = batchMode;
-  window.batchListar = batchListar;
+  // Chamado por map.js ao abrir a aba.
+  window.batchCheckStatus = function () { _initDrop(); _render(0); };
+  window.batchEscolherPasta = batchEscolherPasta;
+  window.batchLimpar = batchLimpar;
   window.batchStart = batchStart;
 })();
