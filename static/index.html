@@ -19,7 +19,7 @@
   <script src="/vendor/jszip/jszip.min.js"></script>
 
   <!-- App Styles -->
-  <link rel="stylesheet" href="css/styles.css?v=20260806a">
+  <link rel="stylesheet" href="css/styles.css?v=20260810a">
 </head>
 <body>
 
@@ -56,11 +56,14 @@
 <div class="tab-nav">
   <button class="tab-btn active" onclick="switchTab('corte')"> CORTAR GPX</button>
   <button class="tab-btn"        onclick="switchTab('unir')"> UNIR GPX</button>
+  <button class="tab-btn"        onclick="switchTab('unirvideo')"> UNIR VÍDEO</button>
   <button class="tab-btn"        onclick="switchTab('pontos')"> MARCAÇÕES</button>
   <button class="tab-btn"        onclick="switchTab('video')"> VÍDEO + GPX</button>
   <button class="tab-btn"        onclick="switchTab('gopro')"> GOPRO → GPX (LOTE)</button>
   <button class="tab-btn"        onclick="switchTab('scripts')"> SCRIPTS</button>
+   <!-- EDITOR desativado temporariamente. Para reativar, remova este comentário:
    <a class="tab-btn" href="/editor/" target="_blank">🎞 EDITOR</a>
+   -->
    <a class="tab-btn" href="validacao.html" target="_blank">🎞 VALIDAÇÃO</a>
    <a class="tab-btn" href="conversor.html" target="_blank"> CONVERSOR</a>
 </div>
@@ -454,6 +457,104 @@
     </div><!-- /panel-unir -->
 
 
+    <!-- ════════════ TAB: UNIR VÍDEO ════════════ -->
+    <div class="tab-panel" id="panel-unirvideo">
+
+      <div class="section">
+        <div class="section-title">Vídeos MP4 (até 4, na ordem)</div>
+        <div style="display:flex; flex-direction:column; gap:10px;" id="uvSlots">
+
+          <div class="merge-slot" id="uv-slot-A">
+            <div class="slot-header">
+              <span class="slot-badge A">VÍDEO A</span>
+              <span class="slot-filename" id="uv-fname-A">Nenhum arquivo</span>
+              <button class="slot-clear-btn" onclick="uvClearSlot('A')" title="Remover">✕</button>
+            </div>
+            <label class="slot-upload-btn" id="uv-uploadBtn-A">
+              📂 Escolher vídeo A
+              <input type="file" accept="video/mp4,video/quicktime,video/mp2t,.mp4,.mov,.ts,.m2ts,.mts" onchange="uvLoadFile('A', this)">
+            </label>
+            <div class="slot-pts" id="uv-info-A">—</div>
+          </div>
+
+          <div class="merge-slot" id="uv-slot-B">
+            <div class="slot-header">
+              <span class="slot-badge B">VÍDEO B</span>
+              <span class="slot-filename" id="uv-fname-B">Nenhum arquivo</span>
+              <button class="slot-clear-btn" onclick="uvClearSlot('B')" title="Remover">✕</button>
+            </div>
+            <label class="slot-upload-btn" id="uv-uploadBtn-B">
+              📂 Escolher vídeo B
+              <input type="file" accept="video/mp4,video/quicktime,video/mp2t,.mp4,.mov,.ts,.m2ts,.mts" onchange="uvLoadFile('B', this)">
+            </label>
+            <div class="slot-pts" id="uv-info-B">—</div>
+          </div>
+
+          <div class="merge-slot" id="uv-slot-C">
+            <div class="slot-header">
+              <span class="slot-badge C">VÍDEO C</span>
+              <span class="slot-filename" id="uv-fname-C">Nenhum arquivo</span>
+              <button class="slot-clear-btn" onclick="uvClearSlot('C')" title="Remover">✕</button>
+            </div>
+            <label class="slot-upload-btn" id="uv-uploadBtn-C">
+              📂 Escolher vídeo C
+              <input type="file" accept="video/mp4,video/quicktime,video/mp2t,.mp4,.mov,.ts,.m2ts,.mts" onchange="uvLoadFile('C', this)">
+            </label>
+            <div class="slot-pts" id="uv-info-C">—</div>
+          </div>
+
+          <div class="merge-slot" id="uv-slot-D">
+            <div class="slot-header">
+              <span class="slot-badge D">VÍDEO D</span>
+              <span class="slot-filename" id="uv-fname-D">Nenhum arquivo</span>
+              <button class="slot-clear-btn" onclick="uvClearSlot('D')" title="Remover">✕</button>
+            </div>
+            <label class="slot-upload-btn" id="uv-uploadBtn-D">
+              📂 Escolher vídeo D
+              <input type="file" accept="video/mp4,video/quicktime,video/mp2t,.mp4,.mov,.ts,.m2ts,.mts" onchange="uvLoadFile('D', this)">
+            </label>
+            <div class="slot-pts" id="uv-info-D">—</div>
+          </div>
+        </div>
+      </div>
+
+      
+
+      <div class="section" id="uvResumo" style="display:none;">
+        <div class="section-title">Resultado</div>
+        <div class="merge-result">
+          <div class="merge-result-item">
+            <span class="merge-result-label">ARQUIVOS</span>
+            <span class="merge-result-val" id="uvResQtd">—</span>
+          </div>
+          <div class="merge-result-item">
+            <span class="merge-result-label">TAMANHO TOTAL</span>
+            <span class="merge-result-val" id="uvResTam">—</span>
+          </div>
+        </div>
+
+        <div style="margin-top:12px;">
+          <div style="height:6px; background:#1b2130; border-radius:3px; overflow:hidden;">
+            <div id="uvFill" style="height:100%; width:0; background:#4ade80; transition:width .2s;"></div>
+          </div>
+          <div class="hint" id="uvStatus" style="margin-top:6px; min-height:18px;"></div>
+        </div>
+
+        <div style="margin-top:12px;">
+          <button class="btn btn-primary" id="uvBtnUnir" onclick="uvUnir()" style="width:100%;" disabled>
+            🔗 Unir e Gravar no Disco
+          </button>
+        </div>
+      </div>
+
+      <div class="empty-state" id="uvEmptyState">
+        <div class="empty-icon">🎬</div>
+        <div class="empty-text">Carregue ao menos 2 vídeos MP4 para unir</div>
+      </div>
+
+    </div><!-- /panel-unirvideo -->
+
+
     <!-- ════════════ TAB: PONTOS ════════════ -->
     <div class="tab-panel" id="panel-pontos">
 
@@ -709,9 +810,11 @@
           <span>Converter para <b>H.264</b> (abre no Windows Media Player —
                 <b>bem mais lento</b>, só marque se precisar)</span>
         </label>
-        <button class="btn btn-primary" id="vidExportMp4Btn" onclick="exportVideoCutsAsMP4()" style="width:100%;margin-top:6px;">
-          🎬 Exportar VÍDEOS dos Cortes (MP4)
+        
+        <button class="btn btn-primary" id="vidExportTsBtn" onclick="exportVideoCutsStreaming()" style="width:100%;margin-top:6px;">
+          🎬 Exportar vídeo MP4
         </button>
+        
         <button class="btn btn-secondary" onclick="exportVideoCutsCompleto()" style="width:100%;margin-top:6px;">
           Exportar GPX + MP4 de tudo
         </button>
@@ -719,20 +822,11 @@
           <button class="btn btn-secondary" onclick="sendVideoCutsToMerge()" style="flex:1;">
             📤 GPX → UNIR
           </button>
-          <button class="btn btn-secondary" id="vidSendEditorBtn" onclick="sendVideoCutsToEditor()" style="flex:1;">
-            🎞 Vídeo → EDITOR
+          <button class="btn btn-secondary" id="vidSendUnirBtn" onclick="sendVideoCutsToUnir()" style="flex:1;">
+            🎬 Vídeo → UNIR
           </button>
         </div>
-        <button class="btn btn-secondary" id="vidSendBothBtn" onclick="sendVideoCutsToEditorAndCut()"
-                style="width:100%;margin-top:6px;">
-          🎬 Vídeo → EDITOR &nbsp;+&nbsp; 📈 GPX → CORTAR
-        </button>
-        <div class="hint-text" style="margin-top:6px;">
-          O corte roda no seu navegador, sem re-encode (alinha ao keyframe, ~1s de folga).
-          Vários cortes saem num único <b>.zip</b>.
-          <b>GPX → UNIR</b> manda os GPX dos cortes direto pra aba UNIR (vincular com outros cortes);
-          <b>Vídeo → EDITOR</b> corta e abre os trechos já carregados no editor.
-        </div>
+        
         <div class="vid-progress-bar" style="margin-top:6px;"><div id="vidExportFill" class="vid-progress-fill" style="width:0%;"></div></div>
         <div id="vidExportStatus" style="font-size:0.65rem;color:var(--muted);margin-top:4px;"></div>
       </div>
@@ -967,25 +1061,26 @@
 <!-- ══════════════════════════════════════════════════════════════════
      SCRIPTS  (order matters: map → cut → merge → points)
 ════════════════════════════════════════════════════════════════════ -->
-<script src="js/api.js?v=20260806a"></script>
-<script src="js/config.js?v=20260806a"></script>
-<script src="js/streetview.js?v=20260806a"></script>
-<script src="js/map.js?v=20260806a"></script>
-<script src="js/kmcalc.js?v=20260806a"></script>
-<script src="js/cut.js?v=20260806a"></script>
-<script src="js/merge.js?v=20260806a"></script>
-<script src="js/kmz.js?v=20260806a"></script>
-<script src="js/handoff.js?v=20260806a"></script>
-<script src="js/segments.js?v=20260805a"></script>
-<script src="js/points.js?v=20260805a"></script>
-<script src="js/kmz-lib.js?v=20260806a"></script>
-<script src="js/script-lib.js?v=20260806a"></script>
-<script src="js/search.js?v=20260806a"></script>
-<script src="js/video.js?v=20260806a"></script>
-<script src="js/gpmf.js?v=20260806a"></script>
-<script src="js/batch-browser.js?v=20260806a"></script>
-<script src="js/batch.js?v=20260806a"></script>
-<script src="js/video-export.js?v=20260806a"></script>
+<script src="js/api.js?v=20260810a"></script>
+<script src="js/config.js?v=20260810a"></script>
+<script src="js/streetview.js?v=20260810a"></script>
+<script src="js/map.js?v=20260810a"></script>
+<script src="js/kmcalc.js?v=20260810a"></script>
+<script src="js/cut.js?v=20260810a"></script>
+<script src="js/merge.js?v=20260810a"></script>
+<script src="js/unir-video.js?v=20260810a"></script>
+<script src="js/kmz.js?v=20260810a"></script>
+<script src="js/handoff.js?v=20260810a"></script>
+<script src="js/segments.js?v=20260810a"></script>
+<script src="js/points.js?v=20260810a"></script>
+<script src="js/kmz-lib.js?v=20260810a"></script>
+<script src="js/script-lib.js?v=20260810a"></script>
+<script src="js/search.js?v=20260810a"></script>
+<script src="js/video.js?v=20260810a"></script>
+<script src="js/gpmf.js?v=20260810a"></script>
+<script src="js/batch-browser.js?v=20260810a"></script>
+<script src="js/batch.js?v=20260810a"></script>
+<script src="js/video-export.js?v=20260810a"></script>
 <!-- ══════════════════════════════════════════════════════════════════
      TELA DE LOGIN
 ════════════════════════════════════════════════════════════════════ -->
@@ -1034,8 +1129,6 @@
     await apiFetch('/auth/me');
     esconderLogin();
     carregarDadosDoServidor();
-    if (typeof kmzLibInit === 'function') kmzLibInit();
-    if (typeof scrInit    === 'function') scrInit();
   } catch(_) {
     await apiLogout();
   }
@@ -1054,8 +1147,6 @@ async function fazerLogin() {
     await apiLogin(nome, senha);
     esconderLogin();
     carregarDadosDoServidor();
-    if (typeof kmzLibInit === 'function') kmzLibInit();
-    if (typeof scrInit    === 'function') scrInit();
   } catch(e) {
     errEl.textContent = e.message;
     errEl.style.display = '';

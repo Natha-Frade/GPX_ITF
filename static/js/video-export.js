@@ -57,12 +57,24 @@
     });
   }
 
+  // Traduz qualquer coisa lancada (Error, ErrorEvent de Worker, string,
+  // objeto solto) numa mensagem legivel. Falhas vindas do worker do ffmpeg
+  // chegam como EVENTO, sem .message — era isso que virava "Erro: undefined".
+  function _erroTexto(e) {
+    if (!e) return 'erro desconhecido';
+    if (typeof e === 'string') return e;
+    if (e.message) return e.message;
+    if (e.type) return 'falha no worker do ffmpeg (evento "' + e.type + '")';
+    try { return JSON.stringify(e); } catch (_) { return String(e); }
+  }
+  window._ffErroTexto = _erroTexto;
+
   async function _ensureFFmpeg(onStatus) {
     if (_ffmpeg) return _ffmpeg;
     if (!_loadPromise) {
       _loadPromise = (async () => {
         onStatus && onStatus('Carregando motor de vídeo...');
-        let ultimoErro = null;
+        const tentativas = [];
         for (const cdn of CDNS) {
           try {
             // O core multi-thread só funciona com cross-origin isolation
@@ -96,12 +108,13 @@
             _ffmpegMT = !!cdn.mt;
             return ff;
           } catch (e) {
-            ultimoErro = e;
+            const motivo = _erroTexto(e);
+            console.error('[ffmpeg] falhou em ' + cdn.core + ':', e);
+            tentativas.push(cdn.core + ': ' + motivo);
             onStatus && onStatus('Tentando outra configuração do motor...');
           }
         }
-        throw new Error('Não consegui baixar o motor de vídeo (rede bloqueando ' +
-          'unpkg.com e cdn.jsdelivr.net?). Detalhe: ' + (ultimoErro?.message || ''));
+        throw new Error('Não consegui carregar o motor de vídeo.\n' + tentativas.join('\n'));
       })().catch(e => { _loadPromise = null; throw e; });
     }
     return _loadPromise;
@@ -315,11 +328,341 @@
     return true;
   }
 
+  // ── Corte LONGO: grava direto no disco, sem acumular na memoria ─────
+  //
+  // Por que existe: ff.readFile() monta o arquivo inteiro na memoria do
+  // wasm antes do download. O wasm e 32-bit (teto ~2 GB), entao um corte
+  // de 15 min em 1080p (~3,4 GB) estoura com "Array buffer allocation
+  // failed". Aumentar RAM do servidor nao muda nada: o limite e do
+  // navegador.
+  //
+  // Aqui o trecho e cortado em blocos de BLOCO_SEG segundos. Cada bloco e
+  // lido, escrito no disco via File System Access API e apagado da memoria
+  // do wasm. O pico de memoria fica constante (~1 bloco), independente do
+  // corte ter 15 min ou 2 h.
+  //
+  // A saida e MPEG-TS porque blocos .ts podem ser concatenados por simples
+  // anexacao de bytes — e o que torna a gravacao incremental possivel.
+  // Continua stream copy (-c copy): qualidade identica, sem re-encode.
+  const BLOCO_SEG = 60;
+
+  async function videoCortarStreaming(file, cuts, onStatus, onProgress) {
+    if (!window.showSaveFilePicker) {
+      throw new Error('Este navegador não permite gravar direto no disco. ' +
+        'Use o Chrome ou o Edge para cortes longos.');
+    }
+    if (!cuts || !cuts.length) throw new Error('Nenhum corte definido.');
+    _cancelado = false;
+
+    const ff = await _ensureFFmpeg(onStatus);
+    const m = await _mount(ff, [file]);
+    const entrada = (m.dir ? m.dir + '/' : '/') + file.name;
+    // Guardamos os handles p/ devolver os arquivos gravados sem relê-los
+    // pra memoria: handle.getFile() entrega um File por referencia.
+    const handles = [];
+
+    try {
+      for (let c = 0; c < cuts.length; c++) {
+        const cut = cuts[c];
+        const ini = Number(cut.startSec) || 0;
+        const fim = Number(cut.endSec);
+        const dur = fim - ini;
+        if (!(dur > 0)) throw new Error('Corte ' + (c + 1) + ' tem duração inválida.');
+
+        const base = file.name.replace(/\.[^.]+$/, '');
+        const sugerido = base + '_corte' + (c + 1) + '.ts';
+
+        onStatus && onStatus('Escolha onde salvar o corte ' + (c + 1) + '…');
+        const handle = await window.showSaveFilePicker({
+          suggestedName: sugerido,
+          types: [{ description: 'Vídeo MPEG-TS', accept: { 'video/mp2t': ['.ts'] } }],
+        });
+        handles.push(handle);
+        const stream = await handle.createWritable();
+
+        try {
+          const blocos = Math.ceil(dur / BLOCO_SEG);
+          for (let b = 0; b < blocos; b++) {
+            if (_cancelado) throw new Error('Cancelado pelo usuário.');
+
+            const t0 = ini + b * BLOCO_SEG;
+            const t = Math.min(BLOCO_SEG, fim - t0);
+            const saida = 'bloco.ts';
+
+            onStatus && onStatus(
+              'Corte ' + (c + 1) + '/' + cuts.length +
+              ' — bloco ' + (b + 1) + '/' + blocos + ' (sem re-encode)…'
+            );
+
+            // -ss antes do -i zera os timestamps de cada bloco. Sem
+            // corrigir, todo bloco comeca em 00:00 e o arquivo final tem o
+            // tempo reiniciando a cada minuto — o player nao consegue
+            // calcular a duracao (aparece 00:00). O -output_ts_offset
+            // reposiciona cada bloco no seu instante relativo dentro do
+            // corte, deixando a linha do tempo continua.
+            await ff.exec([
+              '-ss', t0.toFixed(3),
+              '-i', entrada,
+              '-t', t.toFixed(3),
+              '-map', '0:v:0',
+              '-map', '0:a:0?',
+              '-c', 'copy',
+              '-output_ts_offset', (t0 - ini).toFixed(3),
+              '-muxdelay', '0',
+              '-muxpreload', '0',
+              '-f', 'mpegts',
+              '-y', saida,
+            ]);
+
+            const dados = await ff.readFile(saida);
+            await stream.write(dados);
+            // Libera imediatamente: e isso que mantem a memoria constante.
+            await ff.deleteFile(saida).catch(() => {});
+
+            onProgress && onProgress((c + (b + 1) / blocos) / cuts.length);
+          }
+        } finally {
+          await stream.close();
+        }
+      }
+      onStatus && onStatus(cuts.length + ' corte(s) gravados no disco.');
+      const arquivos = [];
+      for (const h of handles) { try { arquivos.push(await h.getFile()); } catch (_) {} }
+      return arquivos;
+    } finally {
+      await _unmount(ff, m, [file]);
+    }
+  }
+
+  // ── Unir varios videos gravando direto no disco ─────────────────────
+  //
+  // Mesma premissa do corte longo: videoJuntarMP4() monta o resultado
+  // inteiro na memoria do wasm (ff.readFile) e estoura os ~2 GB. Dois
+  // cortes de 10 min em 1080p somam ~6,8 GB — nao cabe de jeito nenhum.
+  //
+  // Aqui cada arquivo e percorrido em blocos de BLOCO_SEG segundos,
+  // convertido para MPEG-TS com -c copy e anexado ao arquivo de saida. O
+  // offset de tempo e acumulado entre os arquivos, entao a linha do tempo
+  // final e continua e o player mostra a duracao somada corretamente.
+  //
+  // Requisito do stream copy: mesmo codec, resolucao e fps em todos.
+
+  // Le a duracao sem carregar o video: so os metadados.
+  function _duracaoDe(file) {
+    return new Promise((ok, falhou) => {
+      const url = URL.createObjectURL(file);
+      const v = document.createElement('video');
+      v.preload = 'metadata';
+      v.onloadedmetadata = () => {
+        const d = v.duration;
+        URL.revokeObjectURL(url);
+        (isFinite(d) && d > 0) ? ok(d)
+          : falhou(new Error('Não consegui ler a duração de ' + file.name));
+      };
+      v.onerror = () => {
+        URL.revokeObjectURL(url);
+        falhou(new Error('Não consegui ler os metadados de ' + file.name));
+      };
+      v.src = url;
+    });
+  }
+
+  // Duracao via ffmpeg, lendo o log do "-i". Necessario para .ts: o
+  // Chromium nao decodifica MPEG-TS num <video>, entao _duracaoDe falha
+  // justamente nos arquivos que o proprio app gera.
+  async function _infoViaFFmpeg(ff, file) {
+    let texto = '';
+    const captura = ({ message }) => { texto += message + '\n'; };
+    ff.on('log', captura);
+    const m = await _mount(ff, [file]);
+    try {
+      const entrada = (m.dir ? m.dir + '/' : '/') + file.name;
+      // "-i" sozinho termina em erro ("At least one output file must be
+      // specified"), mas o cabecalho com a Duration ja foi impresso.
+      await ff.exec(['-i', entrada]).catch(() => {});
+    } finally {
+      ff.off('log', captura);
+      await _unmount(ff, m, [file]);
+    }
+    const m2 = texto.match(
+      /Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)(?:\s*,\s*start:\s*(-?\d+(?:\.\d+)?))?/);
+    if (!m2) throw new Error('Não consegui ler a duração de ' + file.name);
+    return {
+      dur:   (+m2[1]) * 3600 + (+m2[2]) * 60 + parseFloat(m2[3]),
+      start: m2[4] !== undefined ? parseFloat(m2[4]) : 0,
+    };
+  }
+
+  async function _duracaoViaFFmpeg(ff, file) {
+    return (await _infoViaFFmpeg(ff, file)).dur;
+  }
+
+  // Concatenacao BINARIA de MPEG-TS.
+  //
+  // TS foi desenhado para transmissao continua: e uma sequencia de pacotes
+  // de 188 bytes autocontidos, sem indice global. Juntar dois .ts e anexar
+  // os bytes do segundo no fim do primeiro — o mesmo principio do Unir GPX.
+  //
+  // Nao passa pelo ffmpeg: sem remux, sem re-encode, sem risco de gerar
+  // timestamps invalidos. Le e escreve em pedacos de 8 MB, entao a memoria
+  // fica constante independente do tamanho.
+  const PEDACO = 8 * 1024 * 1024;
+
+  async function _concatBinario(files, stream, onStatus, onProgress) {
+    const total = files.reduce((a, f) => a + f.size, 0);
+    let escritos = 0;
+    for (let i = 0; i < files.length; i++) {
+      const f = files[i];
+      for (let pos = 0; pos < f.size; pos += PEDACO) {
+        if (_cancelado) throw new Error('Cancelado pelo usuário.');
+        const fim = Math.min(pos + PEDACO, f.size);
+        const buf = await f.slice(pos, fim).arrayBuffer();
+        await stream.write(new Uint8Array(buf));
+        escritos += fim - pos;
+        onStatus && onStatus(
+          'Unindo ' + (i + 1) + '/' + files.length + ' — ' +
+          Math.round((escritos / total) * 100) + '%'
+        );
+        onProgress && onProgress(escritos / total);
+      }
+    }
+    return total;
+  }
+
+  const _ehTS = (f) => /\.(ts|m2ts|mts)$/i.test(f.name);
+
+  async function videoUnirStreaming(files, onStatus, onProgress) {
+    if (!window.showSaveFilePicker) {
+      throw new Error('Este navegador não permite gravar direto no disco. ' +
+        'Use um navegador Chromium (Chrome, Edge, Opera GX, Brave).');
+    }
+    if (!files || files.length < 2) throw new Error('Selecione 2 ou mais vídeos.');
+    _cancelado = false;
+
+    // Estrategia: TUDO vira MPEG-TS e depois e anexado byte a byte.
+    //
+    //  - PRIMEIRO arquivo, se ja for .ts -> copia direta dos bytes
+    //    (instantaneo). So o primeiro pode: ele e o unico cuja linha do
+    //    tempo comeca no inicio do arquivo final, entao os timestamps que
+    //    ele ja carrega servem como estao.
+    //
+    //  - TODOS OS DEMAIS (.mp4, .mov E TAMBEM .ts) -> remux para TS em
+    //    blocos com -output_ts_offset, deslocando os timestamps para o
+    //    ponto certo da linha do tempo final.
+    //
+    // BUG CORRIGIDO: antes, qualquer .ts era copiado byte a byte. Como os
+    // bytes carregam os timestamps originais (que comecam em 00:00), um
+    // .ts colocado depois de um .mp4 fazia o tempo VOLTAR para zero na
+    // emenda. O arquivo saia com o tamanho somado, mas o player calcula a
+    // duracao pelo ultimo timestamp menos o primeiro — e mostrava so a
+    // duracao do ultimo trecho.
+    const ff = await _ensureFFmpeg(onStatus);
+
+    const base = files[0].name.replace(/\.[^.]+$/, '');
+    onStatus && onStatus('Escolha onde salvar o vídeo unido…');
+    const handle = await window.showSaveFilePicker({
+      suggestedName: base + '_unido_' + files.length + 'partes.ts',
+      types: [{ description: 'Vídeo MPEG-TS', accept: { 'video/mp2t': ['.ts'] } }],
+    });
+    const stream = await handle.createWritable();
+
+    const totalBytes = files.reduce((a, f) => a + f.size, 0);
+    let feitos = 0;
+    // Deslocamento acumulado na linha do tempo FINAL. Sem isso cada
+    // arquivo recomeca em 00:00 e o player para na emenda.
+    let offset = 0;
+
+    try {
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const rotulo = 'Vídeo ' + (i + 1) + '/' + files.length;
+
+        if (_ehTS(file) && i === 0) {
+          // Caminho rapido: e o primeiro arquivo e ja e TS — os timestamps
+          // dele ja sao os da linha do tempo final, basta anexar os bytes.
+          for (let pos = 0; pos < file.size; pos += PEDACO) {
+            if (_cancelado) throw new Error('Cancelado pelo usuário.');
+            const ate = Math.min(pos + PEDACO, file.size);
+            const buf = await file.slice(pos, ate).arrayBuffer();
+            await stream.write(new Uint8Array(buf));
+            feitos += ate - pos;
+            onStatus && onStatus(rotulo + ' — copiando (' +
+              Math.round((feitos / totalBytes) * 100) + '%)');
+            onProgress && onProgress(feitos / totalBytes);
+          }
+          // O proximo arquivo tem que comecar onde este termina. Se a
+          // leitura falhar, NAO da pra continuar: sem offset correto o
+          // resultado sai com a duracao errada (era o bug antigo, que
+          // engolia a falha com "offset += 0").
+          const inf = await _infoViaFFmpeg(ff, file);
+          offset += inf.start + inf.dur;
+          continue;
+        }
+
+        // MP4/MOV/TS: remux para TS em blocos, com os timestamps
+        // deslocados para o ponto certo da linha do tempo final.
+        let dur;
+        if (_ehTS(file)) {
+          // Chromium nao decodifica MPEG-TS num <video>: vai direto no ffmpeg.
+          dur = await _duracaoViaFFmpeg(ff, file);
+        } else {
+          try { dur = await _duracaoDe(file); }
+          catch (_) { dur = await _duracaoViaFFmpeg(ff, file); }
+        }
+
+        const m = await _mount(ff, [file]);
+        const entrada = (m.dir ? m.dir + '/' : '/') + file.name;
+        try {
+          const blocos = Math.ceil(dur / BLOCO_SEG);
+          for (let b = 0; b < blocos; b++) {
+            if (_cancelado) throw new Error('Cancelado pelo usuário.');
+            const t0 = b * BLOCO_SEG;
+            const t = Math.min(BLOCO_SEG, dur - t0);
+            const saida = 'bloco.ts';
+
+            onStatus && onStatus(rotulo + ' — convertendo bloco ' +
+              (b + 1) + '/' + blocos + ' (sem re-encode)…');
+
+            await ff.exec([
+              '-ss', t0.toFixed(3),
+              '-i', entrada,
+              '-t', t.toFixed(3),
+              '-map', '0:v:0',
+              '-map', '0:a:0?',
+              '-c', 'copy',
+              '-output_ts_offset', (offset + t0).toFixed(3),
+              '-muxdelay', '0',
+              '-muxpreload', '0',
+              '-f', 'mpegts',
+              '-y', saida,
+            ]);
+
+            const dados = await ff.readFile(saida);
+            await stream.write(dados);
+            await ff.deleteFile(saida).catch(() => {});
+            onProgress && onProgress(Math.min(1, (feitos + (t / dur) * file.size) / totalBytes));
+          }
+        } finally {
+          await _unmount(ff, m, [file]);
+        }
+        feitos += file.size;
+        offset += dur;
+      }
+
+      onStatus && onStatus('Vídeo unido gravado no disco.');
+      return files.length;
+    } finally {
+      await stream.close();
+    }
+  }
+
   function videoExportCancelar() { _cancelado = true; }
 
   window.videoExportarCortesMP4 = videoExportarCortesMP4;
   window.videoCortarParaBlobs   = videoCortarParaBlobs;
   window.videoJuntarMP4 = videoJuntarMP4;
+  window.videoCortarStreaming = videoCortarStreaming;
+  window.videoUnirStreaming   = videoUnirStreaming;
   window.videoExportCancelar = videoExportCancelar;
   // Internos expostos p/ o editor (editor-ffmpeg.js)
   window._ffmpegEnsure  = _ensureFFmpeg;

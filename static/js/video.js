@@ -1,3 +1,12 @@
+// Mensagem legivel para qualquer coisa lancada. Erros vindos do worker do
+// ffmpeg nao sao Error e nao tem .message — dai o antigo "Erro: undefined".
+function _vidErro(e) {
+  if (typeof window._ffErroTexto === 'function') return window._ffErroTexto(e);
+  if (!e) return 'erro desconhecido';
+  if (typeof e === 'string') return e;
+  return e.message || String(e);
+}
+
 // ── video.js — v7 ──
 
 // ── ESTADO DE SINCRONIA ──
@@ -717,8 +726,8 @@ async function exportVideoCutsAsMP4() {
     if (st) st.textContent = n + ' vídeo(s) exportado(s) — sem re-encode, corte no keyframe.';
     showToast(n + ' MP4(s) baixado(s)', 'success');
   } catch (e) {
-    if (st) st.textContent = 'Erro: ' + e.message;
-    showToast('Erro ao exportar: ' + e.message, 'error');
+    if (st) st.textContent = 'Erro: ' + _vidErro(e);
+    showToast('Erro ao exportar: ' + _vidErro(e), 'error');
   } finally {
     if (btn) btn.disabled = false;
     if (fill) setTimeout(() => { fill.style.width = '0%'; }, 1500);
@@ -928,8 +937,85 @@ async function sendVideoCutsToEditor() {
       showToast('Cortes enviados para o EDITOR', 'success');
     }
   } catch (e) {
-    if (st) st.textContent = 'Erro: ' + e.message;
-    showToast('Erro ao enviar: ' + e.message, 'error');
+    if (st) st.textContent = 'Erro: ' + _vidErro(e);
+    showToast('Erro ao enviar: ' + _vidErro(e), 'error');
+  } finally {
+    if (btn) btn.disabled = false;
+    if (fill) setTimeout(() => { fill.style.width = '0%'; }, 1500);
+  }
+}
+
+// ── Corta e manda os trechos pra aba UNIR VÍDEO ────────────────────
+// Equivalente ao "GPX → UNIR", mas para video: grava os cortes no disco e
+// ja carrega os arquivos resultantes nos slots da aba de uniao. Os
+// arquivos entram por referencia (handle.getFile()), sem passar pela
+// memoria — e o que permite trabalhar com varios GB.
+async function sendVideoCutsToUnir() {
+  const st  = document.getElementById('vidExportStatus');
+  const btn = document.getElementById('vidSendUnirBtn');
+
+  if (!videoFileRef) { showToast('Carregue um vídeo primeiro', 'error'); return; }
+  if (!videoDuration) await garantirDuracaoVideo();
+  if (!videoCuts.length) { showToast('Defina cortes na timeline', 'error'); return; }
+  if (typeof window.videoCortarStreaming !== 'function') {
+    showToast('video-export.js não carregado — Ctrl+Shift+R', 'error'); return;
+  }
+
+  const cuts = [...videoCuts].sort((a, b) => a.startSec - b.startSec);
+  if (btn) btn.disabled = true;
+  try {
+    const arquivos = await window.videoCortarStreaming(
+      videoFileRef, cuts,
+      msg => { if (st) st.textContent = msg; },
+      p => { const f = document.getElementById('vidExportFill'); if (f) f.style.width = (p * 100).toFixed(0) + '%'; }
+    );
+    if (!arquivos || !arquivos.length) { showToast('Nenhum corte gravado', 'error'); return; }
+
+    const n = window.uvReceberArquivos(arquivos);
+    switchTab('unirvideo');
+    showToast(n + ' corte(s) carregados na aba UNIR VÍDEO', 'success');
+    if (arquivos.length > 4) {
+      showToast('Só os 4 primeiros cabem nos slots', 'error');
+    }
+  } catch (e) {
+    if (e && e.name === 'AbortError') { if (st) st.textContent = 'Cancelado.'; return; }
+    console.error('[video->unir]', e);
+    if (st) st.textContent = 'Erro: ' + _vidErro(e);
+    showToast('Erro: ' + _vidErro(e), 'error');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+// ── Corte LONGO: grava direto no disco (.ts), sem teto de memoria ──
+// Use quando o corte passa de ~5 min. O caminho normal (MP4) monta o
+// arquivo inteiro na memoria do wasm e estoura em ~2 GB.
+async function exportVideoCutsStreaming() {
+  const st   = document.getElementById('vidExportStatus');
+  const fill = document.getElementById('vidExportFill');
+  const btn  = document.getElementById('vidExportTsBtn');
+
+  if (!videoFileRef) { showToast('Carregue um vídeo primeiro', 'error'); return; }
+  if (!videoDuration) await garantirDuracaoVideo();
+  if (!videoCuts.length) { showToast('Defina cortes na timeline', 'error'); return; }
+  if (typeof window.videoCortarStreaming !== 'function') {
+    showToast('video-export.js não carregado — recarregue com Ctrl+Shift+R', 'error'); return;
+  }
+
+  const cuts = [...videoCuts].sort((a, b) => a.startSec - b.startSec);
+  if (btn) btn.disabled = true;
+  try {
+    await window.videoCortarStreaming(
+      videoFileRef, cuts,
+      msg => { if (st) st.textContent = msg; },
+      p   => { if (fill) fill.style.width = (p * 100).toFixed(0) + '%'; }
+    );
+    showToast('Corte(s) gravados no disco', 'success');
+  } catch (e) {
+    if (e && e.name === 'AbortError') { if (st) st.textContent = 'Cancelado.'; return; }
+    console.error('[corte-streaming]', e);
+    if (st) st.textContent = 'Erro: ' + _vidErro(e);
+    showToast('Erro no corte: ' + _vidErro(e), 'error');
   } finally {
     if (btn) btn.disabled = false;
     if (fill) setTimeout(() => { fill.style.width = '0%'; }, 1500);
@@ -954,8 +1040,8 @@ function vidJoinPick() {
       if (st) st.textContent = 'Vídeo unido baixado (ordem: ' + files.map(f => f.name).join(' → ') + ')';
       showToast('Vídeos unidos com sucesso', 'success');
     } catch (e) {
-      if (st) st.textContent = 'Erro: ' + e.message;
-      showToast('Erro ao juntar: ' + e.message, 'error');
+      if (st) st.textContent = 'Erro: ' + _vidErro(e);
+      showToast('Erro ao juntar: ' + _vidErro(e), 'error');
     } finally {
       if (fill) setTimeout(() => { fill.style.width = '0%'; }, 1500);
     }

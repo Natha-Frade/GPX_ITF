@@ -44,7 +44,7 @@ let currentTab = 'corte';
 
 function switchTab(tab) {
   currentTab = tab;
-  const tabs = ['corte', 'unir', 'pontos', 'video', 'gopro', 'scripts'];
+  const tabs = ['corte', 'unir', 'unirvideo', 'pontos', 'video', 'gopro', 'scripts'];
   document.querySelectorAll('.tab-btn').forEach((b, i) => {
     b.classList.toggle('active', tabs[i] === tab);
   });
