@@ -298,7 +298,7 @@
         </button>
         <button id="sendCutsMergeBtn" class="btn btn-secondary" onclick="sendCutsToMerge()"
                 style="width:100%;margin-top:6px;display:none;">
-          📤 Enviar cortes para UNIR
+            Enviar cortes para UNIR
         </button>
         <div class="hint-text" id="sendCutsHint" style="margin-top:6px;display:none;">
           Manda os GPX dos cortes direto pra aba UNIR (até 4 slots), sem precisar baixar antes.
@@ -805,25 +805,25 @@
           <input type="checkbox" id="vidSemAudio">
           <span>Exportar <b>sem áudio</b> (vídeo mudo, arquivo menor)</span>
         </label>
-        <label class="vid-opt-audio">
+       <!-- <label class="vid-opt-audio">
           <input type="checkbox" id="vidConverterH264">
           <span>Converter para <b>H.264</b> (abre no Windows Media Player —
                 <b>bem mais lento</b>, só marque se precisar)</span>
-        </label>
+        </label>-->
         
         <button class="btn btn-primary" id="vidExportTsBtn" onclick="exportVideoCutsStreaming()" style="width:100%;margin-top:6px;">
-          🎬 Exportar vídeo MP4
+           Exportar vídeo 
         </button>
         
         <button class="btn btn-secondary" onclick="exportVideoCutsCompleto()" style="width:100%;margin-top:6px;">
-          Exportar GPX + MP4 de tudo
+          Exportar GPX + Video
         </button>
         <div style="display:flex;gap:6px;margin-top:10px;">
           <button class="btn btn-secondary" onclick="sendVideoCutsToMerge()" style="flex:1;">
-            📤 GPX → UNIR
+             GPX → UNIR
           </button>
           <button class="btn btn-secondary" id="vidSendUnirBtn" onclick="sendVideoCutsToUnir()" style="flex:1;">
-            🎬 Vídeo → UNIR
+             Vídeo → UNIR
           </button>
         </div>
         
